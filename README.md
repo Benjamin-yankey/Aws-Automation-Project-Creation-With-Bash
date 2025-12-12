@@ -383,7 +383,7 @@ Potential improvements for this project:
 
 **Your Name**
 
-- GitHub: [@yourusername](https://github.com/yourusername)
+- GitHub: [https://github.com/Benjamin-yankey/Aws-Automation-Project-Creation-With-Bash
 - Email: frodoandimaro0@gmail.com
 
 ---
