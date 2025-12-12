@@ -1,6 +1,6 @@
 # AWS Resource Automation with Bash
 
-![AWS](https://img.shields.io/badge/AWS-Cloud-orange) ![Bash](https://img.shields.io/badge/Bash-Scripting-green) ![Status](https://img.shields.io/badge/Status-Active-success)
+![AWS](https://img.shields.io/badge/AWS-Cloud-orange) ![Bash](https://img.shields.io/badge/Bash-Scripting-green)
 
 ## Project Overview
 

@@ -1,0 +1,20 @@
+# AWS credentials
+.aws/
+*.pem
+
+# Temporary files
+.sg_id.txt
+.instance_id.txt
+.bucket_name.txt
+welcome.txt
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
