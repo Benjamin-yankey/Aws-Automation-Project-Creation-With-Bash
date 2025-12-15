@@ -1,109 +1,112 @@
 #!/bin/bash
 
-##############################################
 # Script: create_ec2.sh
-# Purpose: Create EC2 instance with key pair
-##############################################
+# Purpose: Automate EC2 instance creation in eu-west-1 with t3.micro
+# Region: eu-west-1 (Ireland)
+# Instance Type: t3.micro
 
-set -e  # Exit on error
+set -e
 
-# Configuration Variables
-KEY_NAME="devops-automation-key"
-INSTANCE_TYPE="t2.micro"
-PROJECT_TAG="AutomationLab"
-INSTANCE_NAME="devops-automation-instance"
+# Configuration
+REGION="eu-west-1"
+KEY_NAME="devops-keypair-$(date +%s)"
+INSTANCE_TYPE="t3.micro"
+AMI_ID="ami-0d64bb532e0502c46" # Amazon Linux 2023 AMI for eu-west-1
+INSTANCE_NAME="AutomationLab-EC2"
 
 echo "=========================================="
-echo "Starting EC2 Instance Creation"
+echo "EC2 Instance Creation Script"
+echo "Region: $REGION"
+echo "Instance Type: $INSTANCE_TYPE"
 echo "=========================================="
 
-# Get latest Amazon Linux 2 AMI ID
-echo "Fetching latest Amazon Linux 2 AMI..."
-AMI_ID=$(aws ec2 describe-images \
-    --owners amazon \
-    --filters "Name=name,Values=amzn2-ami-hvm-*-x86_64-gp2" \
-              "Name=state,Values=available" \
-    --query "Images | sort_by(@, &CreationDate) | [-1].ImageId" \
+# Create key pair
+echo "[1/4] Creating EC2 key pair: $KEY_NAME..."
+aws ec2 create-key-pair \
+    --key-name "$KEY_NAME" \
+    --region "$REGION" \
+    --query 'KeyMaterial' \
+    --output text > "${KEY_NAME}.pem"
+
+if [ $? -eq 0 ]; then
+    chmod 400 "${KEY_NAME}.pem"
+    echo "✓ Key pair created and saved to ${KEY_NAME}.pem"
+else
+    echo "✗ Failed to create key pair"
+    exit 1
+fi
+
+# Get default VPC ID
+echo "[2/4] Getting default VPC..."
+VPC_ID=$(aws ec2 describe-vpcs \
+    --region "$REGION" \
+    --filters "Name=isDefault,Values=true" \
+    --query 'Vpcs[0].VpcId' \
     --output text)
 
-if [ -z "$AMI_ID" ] || [ "$AMI_ID" == "None" ]; then
-    echo "ERROR: Could not find Amazon Linux 2 AMI"
+if [ -z "$VPC_ID" ] || [ "$VPC_ID" == "None" ]; then
+    echo "✗ No default VPC found in $REGION"
     exit 1
 fi
+echo "✓ Using VPC: $VPC_ID"
 
-echo "Using AMI: $AMI_ID"
-
-# Check if key pair exists, if not create it
-echo "Checking for existing key pair..."
-KEY_EXISTS=$(aws ec2 describe-key-pairs \
-    --key-names "$KEY_NAME" \
-    --query "KeyPairs[0].KeyName" \
-    --output text 2>/dev/null || echo "")
-
-if [ -z "$KEY_EXISTS" ] || [ "$KEY_EXISTS" == "None" ]; then
-    echo "Creating new key pair: $KEY_NAME"
-    aws ec2 create-key-pair \
-        --key-name "$KEY_NAME" \
-        --query 'KeyMaterial' \
-        --output text > "${KEY_NAME}.pem"
-    
-    chmod 400 "${KEY_NAME}.pem"
-    echo "Key pair created and saved to ${KEY_NAME}.pem"
-else
-    echo "Key pair '$KEY_NAME' already exists"
-fi
-
-# Get security group ID (created by previous script)
-if [ -f ".sg_id.txt" ]; then
-    SG_ID=$(cat .sg_id.txt)
-    echo "Using existing security group: $SG_ID"
-else
-    echo "ERROR: Security group not found. Please run create_security_group.sh first"
-    exit 1
-fi
+# Get default security group
+SECURITY_GROUP=$(aws ec2 describe-security-groups \
+    --region "$REGION" \
+    --filters "Name=vpc-id,Values=$VPC_ID" "Name=group-name,Values=default" \
+    --query 'SecurityGroups[0].GroupId' \
+    --output text)
 
 # Launch EC2 instance
-echo "Launching EC2 instance..."
+echo "[3/4] Launching EC2 instance (t3.micro)..."
 INSTANCE_ID=$(aws ec2 run-instances \
     --image-id "$AMI_ID" \
     --instance-type "$INSTANCE_TYPE" \
     --key-name "$KEY_NAME" \
-    --security-group-ids "$SG_ID" \
-    --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$INSTANCE_NAME},{Key=Project,Value=$PROJECT_TAG}]" \
+    --security-group-ids "$SECURITY_GROUP" \
+    --region "$REGION" \
+    --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$INSTANCE_NAME},{Key=Project,Value=AutomationLab},{Key=Environment,Value=Development}]" \
     --query 'Instances[0].InstanceId' \
     --output text)
 
-echo "Instance launching... Instance ID: $INSTANCE_ID"
+if [ -z "$INSTANCE_ID" ]; then
+    echo "✗ Failed to launch instance"
+    exit 1
+fi
+echo "✓ Instance launched: $INSTANCE_ID"
 
 # Wait for instance to be running
-echo "Waiting for instance to be in running state..."
-aws ec2 wait instance-running --instance-ids "$INSTANCE_ID"
+echo "[4/4] Waiting for instance to enter running state..."
+aws ec2 wait instance-running \
+    --instance-ids "$INSTANCE_ID" \
+    --region "$REGION"
 
 # Get instance details
-echo "Fetching instance details..."
-INSTANCE_INFO=$(aws ec2 describe-instances \
+PUBLIC_IP=$(aws ec2 describe-instances \
     --instance-ids "$INSTANCE_ID" \
-    --query 'Reservations[0].Instances[0].[PublicIpAddress,State.Name,InstanceType]' \
+    --region "$REGION" \
+    --query 'Reservations[0].Instances[0].PublicIpAddress' \
     --output text)
 
-PUBLIC_IP=$(echo $INSTANCE_INFO | awk '{print $1}')
-STATE=$(echo $INSTANCE_INFO | awk '{print $2}')
-TYPE=$(echo $INSTANCE_INFO | awk '{print $3}')
+PRIVATE_IP=$(aws ec2 describe-instances \
+    --instance-ids "$INSTANCE_ID" \
+    --region "$REGION" \
+    --query 'Reservations[0].Instances[0].PrivateIpAddress' \
+    --output text)
 
+# Display results
 echo ""
 echo "=========================================="
-echo "EC2 Instance Created Successfully"
+echo "EC2 Instance Created Successfully!"
 echo "=========================================="
-echo "Instance ID: $INSTANCE_ID"
-echo "Instance Type: $TYPE"
-echo "State: $STATE"
-echo "Public IP: $PUBLIC_IP"
-echo "Key Pair: ${KEY_NAME}.pem"
+echo "Instance ID:     $INSTANCE_ID"
+echo "Instance Type:   $INSTANCE_TYPE"
+echo "Region:          $REGION"
+echo "Public IP:       $PUBLIC_IP"
+echo "Private IP:      $PRIVATE_IP"
+echo "Key Pair:        ${KEY_NAME}.pem"
+echo "=========================================="
 echo ""
-echo "To connect via SSH:"
-echo "ssh -i ${KEY_NAME}.pem ec2-user@${PUBLIC_IP}"
+echo "To connect via SSH, use:"
+echo "ssh -i ${KEY_NAME}.pem ec2-user@$PUBLIC_IP"
 echo ""
-
-# Save instance ID for cleanup
-echo "$INSTANCE_ID" > .instance_id.txt
-echo "Instance ID saved to .instance_id.txt"

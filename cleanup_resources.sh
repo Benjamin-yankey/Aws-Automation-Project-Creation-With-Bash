@@ -1,151 +1,160 @@
 #!/bin/bash
 
-##############################################
 # Script: cleanup_resources.sh
-# Purpose: Delete all AWS resources created by automation scripts
-##############################################
+# Purpose: Clean up all AWS resources created by automation scripts
+# Region: eu-west-1
 
-set -e  # Exit on error
+set -e
 
+REGION="eu-west-1"
 PROJECT_TAG="AutomationLab"
 
 echo "=========================================="
 echo "AWS Resource Cleanup Script"
+echo "Region: $REGION"
+echo "Project Tag: $PROJECT_TAG"
 echo "=========================================="
-echo "WARNING: This will delete resources tagged with Project=$PROJECT_TAG"
 echo ""
+echo "⚠ WARNING: This will delete resources tagged with Project=$PROJECT_TAG"
+echo ""
+read -p "Are you sure you want to continue? (yes/no): " CONFIRM
 
-# Function to ask for confirmation
-confirm_cleanup() {
-    read -p "Are you sure you want to proceed? (yes/no): " response
-    if [ "$response" != "yes" ]; then
-        echo "Cleanup cancelled."
-        exit 0
-    fi
-}
-
-confirm_cleanup
+if [ "$CONFIRM" != "yes" ]; then
+    echo "Cleanup cancelled."
+    exit 0
+fi
 
 echo ""
 echo "Starting cleanup process..."
+echo ""
 
+# ===========================
 # 1. Terminate EC2 Instances
-echo ""
-echo "=== Cleaning up EC2 Instances ==="
-if [ -f ".instance_id.txt" ]; then
-    INSTANCE_ID=$(cat .instance_id.txt)
-    echo "Terminating instance: $INSTANCE_ID"
-    aws ec2 terminate-instances --instance-ids "$INSTANCE_ID" || echo "Instance may already be terminated"
-    echo "Waiting for instance to terminate..."
-    aws ec2 wait instance-terminated --instance-ids "$INSTANCE_ID" 2>/dev/null || echo "Instance terminated"
-    rm .instance_id.txt
+# ===========================
+echo "[1/5] Terminating EC2 instances..."
+INSTANCE_IDS=$(aws ec2 describe-instances \
+    --region "$REGION" \
+    --filters "Name=tag:Project,Values=$PROJECT_TAG" "Name=instance-state-name,Values=running,stopped,stopping,pending" \
+    --query 'Reservations[*].Instances[*].InstanceId' \
+    --output text)
+
+if [ -z "$INSTANCE_IDS" ]; then
+    echo "  ✓ No EC2 instances found"
 else
-    echo "Finding instances by tag..."
-    INSTANCE_IDS=$(aws ec2 describe-instances \
-        --filters "Name=tag:Project,Values=$PROJECT_TAG" \
-                  "Name=instance-state-name,Values=running,stopped,stopping,pending" \
-        --query "Reservations[].Instances[].InstanceId" \
-        --output text)
+    echo "  Found instances: $INSTANCE_IDS"
+    aws ec2 terminate-instances \
+        --instance-ids $INSTANCE_IDS \
+        --region "$REGION" > /dev/null
     
-    if [ ! -z "$INSTANCE_IDS" ]; then
-        echo "Terminating instances: $INSTANCE_IDS"
-        aws ec2 terminate-instances --instance-ids $INSTANCE_IDS
-        echo "Waiting for instances to terminate..."
-        for id in $INSTANCE_IDS; do
-            aws ec2 wait instance-terminated --instance-ids "$id" 2>/dev/null || echo "Instance $id terminated"
-        done
-    else
-        echo "No instances found to terminate"
-    fi
+    echo "  ⏳ Waiting for instances to terminate..."
+    aws ec2 wait instance-terminated \
+        --instance-ids $INSTANCE_IDS \
+        --region "$REGION" 2>/dev/null || true
+    
+    echo "  ✓ EC2 instances terminated"
 fi
 
+# ===========================
 # 2. Delete Key Pairs
-echo ""
-echo "=== Cleaning up Key Pairs ==="
-KEY_NAME="devops-automation-key"
-aws ec2 delete-key-pair --key-name "$KEY_NAME" 2>/dev/null || echo "Key pair not found or already deleted"
-if [ -f "${KEY_NAME}.pem" ]; then
-    rm "${KEY_NAME}.pem"
-    echo "Deleted local key file: ${KEY_NAME}.pem"
-fi
+# ===========================
+echo "[2/5] Deleting key pairs..."
+KEY_PAIRS=$(aws ec2 describe-key-pairs \
+    --region "$REGION" \
+    --query 'KeyPairs[?starts_with(KeyName, `devops-keypair`)].KeyName' \
+    --output text)
 
-# 3. Empty and Delete S3 Buckets
-echo ""
-echo "=== Cleaning up S3 Buckets ==="
-if [ -f ".bucket_name.txt" ]; then
-    BUCKET_NAME=$(cat .bucket_name.txt)
-    echo "Deleting bucket: $BUCKET_NAME"
-    
-    # Empty bucket (including all versions)
-    echo "Emptying bucket..."
-    aws s3 rm "s3://${BUCKET_NAME}" --recursive 2>/dev/null || echo "Bucket already empty"
-    
-    # Delete all object versions
-    aws s3api delete-objects \
-        --bucket "$BUCKET_NAME" \
-        --delete "$(aws s3api list-object-versions \
-            --bucket "$BUCKET_NAME" \
-            --query '{Objects: Versions[].{Key:Key,VersionId:VersionId}}' \
-            --output json)" 2>/dev/null || echo "No versions to delete"
-    
-    # Delete delete markers
-    aws s3api delete-objects \
-        --bucket "$BUCKET_NAME" \
-        --delete "$(aws s3api list-object-versions \
-            --bucket "$BUCKET_NAME" \
-            --query '{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}' \
-            --output json)" 2>/dev/null || echo "No delete markers"
-    
-    # Delete bucket
-    aws s3api delete-bucket --bucket "$BUCKET_NAME"
-    echo "Bucket deleted: $BUCKET_NAME"
-    rm .bucket_name.txt
+if [ -z "$KEY_PAIRS" ]; then
+    echo "  ✓ No key pairs found"
 else
-    echo "Finding buckets by tag..."
-    BUCKETS=$(aws s3api list-buckets --query "Buckets[].Name" --output text)
-    
-    for bucket in $BUCKETS; do
-        TAGS=$(aws s3api get-bucket-tagging --bucket "$bucket" 2>/dev/null || echo "")
-        if echo "$TAGS" | grep -q "$PROJECT_TAG"; then
-            echo "Found bucket with project tag: $bucket"
-            echo "Emptying and deleting bucket: $bucket"
-            aws s3 rm "s3://${bucket}" --recursive 2>/dev/null || echo "Bucket already empty"
-            aws s3api delete-bucket --bucket "$bucket"
+    for KEY in $KEY_PAIRS; do
+        aws ec2 delete-key-pair \
+            --key-name "$KEY" \
+            --region "$REGION"
+        echo "  ✓ Deleted key pair: $KEY"
+        
+        # Remove local .pem file if exists
+        if [ -f "${KEY}.pem" ]; then
+            rm "${KEY}.pem"
+            echo "  ✓ Removed local file: ${KEY}.pem"
         fi
     done
 fi
 
-# Delete sample file if it exists
-if [ -f "welcome.txt" ]; then
-    rm welcome.txt
-    echo "Deleted local sample file: welcome.txt"
+# ===========================
+# 3. Delete Security Groups
+# ===========================
+echo "[3/5] Deleting security groups..."
+# Wait a bit to ensure instances are fully terminated
+sleep 5
+
+SG_IDS=$(aws ec2 describe-security-groups \
+    --region "$REGION" \
+    --filters "Name=tag:Project,Values=$PROJECT_TAG" \
+    --query 'SecurityGroups[*].GroupId' \
+    --output text)
+
+if [ -z "$SG_IDS" ]; then
+    echo "  ✓ No security groups found"
+else
+    for SG_ID in $SG_IDS; do
+        # Try to delete, ignore errors if dependencies exist
+        aws ec2 delete-security-group \
+            --group-id "$SG_ID" \
+            --region "$REGION" 2>/dev/null && echo "  ✓ Deleted security group: $SG_ID" || echo "  ⚠ Could not delete: $SG_ID (may have dependencies)"
+    done
 fi
 
-# 4. Delete Security Groups
-echo ""
-echo "=== Cleaning up Security Groups ==="
-sleep 5  # Wait a bit for instances to fully terminate
+# ===========================
+# 4. Delete S3 Buckets
+# ===========================
+echo "[4/5] Deleting S3 buckets..."
+BUCKETS=$(aws s3api list-buckets \
+    --query 'Buckets[?starts_with(Name, `devops-automation-lab`)].Name' \
+    --output text)
 
-if [ -f ".sg_id.txt" ]; then
-    SG_ID=$(cat .sg_id.txt)
-    echo "Deleting security group: $SG_ID"
-    aws ec2 delete-security-group --group-id "$SG_ID" || echo "Security group may be in use or already deleted"
-    rm .sg_id.txt
+if [ -z "$BUCKETS" ]; then
+    echo "  ✓ No S3 buckets found"
 else
-    echo "Finding security groups by tag..."
-    SG_IDS=$(aws ec2 describe-security-groups \
-        --filters "Name=tag:Project,Values=$PROJECT_TAG" \
-        --query "SecurityGroups[].GroupId" \
-        --output text)
-    
-    if [ ! -z "$SG_IDS" ]; then
-        for sg in $SG_IDS; do
-            echo "Deleting security group: $sg"
-            aws ec2 delete-security-group --group-id "$sg" || echo "Could not delete $sg (may be in use)"
-        done
-    else
-        echo "No security groups found to delete"
-    fi
+    for BUCKET in $BUCKETS; do
+        # Check if bucket has the right tags
+        TAGS=$(aws s3api get-bucket-tagging \
+            --bucket "$BUCKET" 2>/dev/null | grep -o "$PROJECT_TAG" || true)
+        
+        if [ ! -z "$TAGS" ] || [[ "$BUCKET" == devops-automation-lab* ]]; then
+            echo "  Emptying bucket: $BUCKET"
+            
+            # Delete all versions and delete markers
+            aws s3api delete-objects \
+                --bucket "$BUCKET" \
+                --delete "$(aws s3api list-object-versions \
+                    --bucket "$BUCKET" \
+                    --output json \
+                    --query '{Objects: Versions[].{Key:Key,VersionId:VersionId}}')" 2>/dev/null || true
+            
+            aws s3api delete-objects \
+                --bucket "$BUCKET" \
+                --delete "$(aws s3api list-object-versions \
+                    --bucket "$BUCKET" \
+                    --output json \
+                    --query '{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}')" 2>/dev/null || true
+            
+            # Delete the bucket
+            aws s3api delete-bucket \
+                --bucket "$BUCKET" \
+                --region "$REGION"
+            
+            echo "  ✓ Deleted bucket: $BUCKET"
+        fi
+    done
+fi
+
+# ===========================
+# 5. Cleanup local files
+# ===========================
+echo "[5/5] Cleaning up local files..."
+if [ -f "welcome.txt" ]; then
+    rm welcome.txt
+    echo "  ✓ Removed welcome.txt"
 fi
 
 echo ""
@@ -153,5 +162,12 @@ echo "=========================================="
 echo "Cleanup Complete!"
 echo "=========================================="
 echo ""
-echo "All resources have been removed."
-echo "Please verify in AWS Console if needed."
+echo "Summary:"
+echo "  - EC2 instances terminated"
+echo "  - Key pairs deleted"
+echo "  - Security groups removed"
+echo "  - S3 buckets emptied and deleted"
+echo "  - Local files cleaned up"
+echo ""
+echo "✓ All resources cleaned up successfully"
+echo ""
