@@ -1,0 +1,95 @@
+[2025-12-15 14:33:37] [INFO] Logging initialized: ./logs/cleanup_20251215_143337.log
+==========================================
+AWS Resource Cleanup Script
+==========================================
+✓ AWS CLI is installed
+[2025-12-15 14:33:37] [SUCCESS] AWS CLI is installed
+[2025-12-15 14:33:40] [INFO] Selected region: eu-west-1
+Selected region: eu-west-1
+[2025-12-15 14:33:40] [INFO] Selected region: eu-west-1
+[2025-12-15 14:33:40] [INFO] Will clean region: eu-west-1
+[2025-12-15 14:33:40] [INFO] Verifying AWS credentials
+{
+    "UserId": "AROAY6QVZEKAQUXZ2DNTO:tY84XD3C7f__benjamin+yankey+amalitech+com",
+    "Account": "615299752577",
+    "Arn": "arn:aws:sts::615299752577:assumed-role/DCEPrincipal-dce/tY84XD3C7f__benjamin+yankey+amalitech+com"
+}
+✓ AWS credentials verified
+[2025-12-15 14:33:41] [SUCCESS] AWS credentials verified
+==========================================
+WARNING: Resource Cleanup
+==========================================
+[2025-12-15 14:33:44] [INFO] User confirmed cleanup
+Starting cleanup process...
+[2025-12-15 14:33:44] [INFO] Starting cleanup process...
+==========================================
+Cleaning region: eu-west-1
+==========================================
+[1/3] Terminating EC2 instances...
+[2025-12-15 14:33:44] [INFO] [1/3] Terminating EC2 instances...
+[2025-12-15 14:33:44] [INFO] Checking for EC2 instances in eu-west-1
+  Found instances in eu-west-1: i-0d177a9db13f3f65a
+[2025-12-15 14:33:45] [INFO]   Found instances in eu-west-1: i-0d177a9db13f3f65a
+{
+    "TerminatingInstances": [
+        {
+            "InstanceId": "i-0d177a9db13f3f65a",
+            "CurrentState": {
+                "Code": 32,
+                "Name": "shutting-down"
+            },
+            "PreviousState": {
+                "Code": 16,
+                "Name": "running"
+            }
+        }
+    ]
+}
+  ⏳ Waiting for instances to terminate...
+[2025-12-15 14:33:46] [INFO]   ⏳ Waiting for instances to terminate...
+✓   EC2 instances terminated in eu-west-1
+[2025-12-15 14:34:48] [SUCCESS]   EC2 instances terminated in eu-west-1
+[2/3] Deleting key pairs...
+[2025-12-15 14:34:48] [INFO] [2/3] Deleting key pairs...
+[2025-12-15 14:34:48] [INFO] Checking for key pairs in eu-west-1
+✓   Deleted key pair: devops-keypair-1765808817
+[2025-12-15 14:34:50] [SUCCESS]   Deleted key pair: devops-keypair-1765808817
+✓   Removed local file: devops-keypair-1765808817.pem
+[2025-12-15 14:34:50] [SUCCESS]   Removed local file: devops-keypair-1765808817.pem
+[3/3] Deleting security groups...
+[2025-12-15 14:34:50] [INFO] [3/3] Deleting security groups...
+[2025-12-15 14:34:50] [INFO] Checking for security groups in eu-west-1
+  No security groups found in eu-west-1
+[2025-12-15 14:34:56] [INFO]   No security groups found in eu-west-1
+==========================================
+Cleaning S3 Buckets
+==========================================
+[4/4] Deleting S3 buckets...
+[2025-12-15 14:34:56] [INFO] [4/4] Deleting S3 buckets...
+[2025-12-15 14:34:56] [INFO] Checking for S3 buckets
+  No S3 buckets found
+[2025-12-15 14:34:57] [INFO]   No S3 buckets found
+==========================================
+Local Cleanup
+==========================================
+[5/5] Cleaning up local files...
+[2025-12-15 14:34:57] [INFO] [5/5] Cleaning up local files...
+[2025-12-15 14:34:57] [INFO] Cleaning up local files
+  No local files to clean
+[2025-12-15 14:34:57] [INFO]   No local files to clean
+==========================================
+Cleanup Complete!
+==========================================
+Summary of cleanup actions:
+  ✓ EC2 instances terminated
+  ✓ Key pairs deleted
+  ✓ Security groups removed
+  ✓ S3 buckets emptied and deleted
+  ✓ Local files cleaned up
+
+Region(s) cleaned: eu-west-1
+Project tag: AutomationLab
+
+Log file saved to: ./logs/cleanup_20251215_143337.log
+==========================================
+[2025-12-15 14:34:57] [SUCCESS] Cleanup completed successfully

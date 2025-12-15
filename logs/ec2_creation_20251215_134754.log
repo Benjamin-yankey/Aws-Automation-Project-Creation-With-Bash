@@ -1,0 +1,59 @@
+{
+    "UserId": "AROAY6QVZEKAQUXZ2DNTO:tY84XD3C7f__benjamin+yankey+amalitech+com",
+    "Account": "615299752577",
+    "Arn": "arn:aws:sts::615299752577:assumed-role/DCEPrincipal-dce/tY84XD3C7f__benjamin+yankey+amalitech+com"
+}
+✓ AWS credentials verified
+[2025-12-15 13:48:05] [SUCCESS] AWS credentials verified
+[1/7] Creating EC2 key pair...
+[2025-12-15 13:48:05] [INFO] [1/7] Creating EC2 key pair...
+[2025-12-15 13:48:05] [INFO] Creating EC2 key pair: devops-keypair-1765806474
+✓ Key pair created: devops-keypair-1765806474.pem
+[2025-12-15 13:48:06] [SUCCESS] Key pair created: devops-keypair-1765806474.pem
+[2/7] Getting default VPC...
+[2025-12-15 13:48:06] [INFO] [2/7] Getting default VPC...
+[2025-12-15 13:48:06] [INFO] Getting default VPC
+✓ Using VPC: vpc-002a5035159fcdf81
+[2025-12-15 13:48:07] [SUCCESS] Using VPC: vpc-002a5035159fcdf81
+[3/7] Getting security group...
+[2025-12-15 13:48:07] [INFO] [3/7] Getting security group...
+[2025-12-15 13:48:07] [INFO] Getting default security group
+✓ Using security group: sg-0434452b723596a1e
+[2025-12-15 13:48:08] [SUCCESS] Using security group: sg-0434452b723596a1e
+[4/7] Launching EC2 instance...
+[2025-12-15 13:48:08] [INFO] [4/7] Launching EC2 instance...
+[2025-12-15 13:48:08] [INFO] Launching EC2 instance (t3.micro)
+✓ Instance launched: i-0faaf4cedd4ec1213
+[2025-12-15 13:48:10] [SUCCESS] Instance launched: i-0faaf4cedd4ec1213
+[5/7] Waiting for instance to be running...
+[2025-12-15 13:48:10] [INFO] [5/7] Waiting for instance to be running...
+[2025-12-15 13:48:10] [INFO] Waiting for instance to enter running state
+⏳ This may take 30-60 seconds...
+[2025-12-15 13:48:10] [INFO] ⏳ This may take 30-60 seconds...
+✓ Instance is now running
+[2025-12-15 13:48:26] [SUCCESS] Instance is now running
+[6/7] Retrieving instance details...
+[2025-12-15 13:48:26] [INFO] [6/7] Retrieving instance details...
+[2025-12-15 13:48:26] [INFO] Retrieving instance details
+✓ Retrieved instance details
+[2025-12-15 13:48:29] [SUCCESS] Retrieved instance details
+[7/7] Finalizing...
+[2025-12-15 13:48:29] [INFO] [7/7] Finalizing...
+==========================================
+EC2 Instance Created Successfully!
+==========================================
+Instance ID:     i-0faaf4cedd4ec1213
+Instance Type:   t3.micro
+Region:          eu-west-1
+AMI ID:          ami-0ebfed9ccce07b642
+Public IP:       18.201.137.244
+Private IP:      172.31.2.107
+Key Pair:        devops-keypair-1765806474.pem
+VPC ID:          vpc-002a5035159fcdf81
+==========================================
+
+To connect via SSH, use:
+  ssh -i devops-keypair-1765806474.pem ec2-user@18.201.137.244
+
+Log file saved to: ./logs/ec2_creation_20251215_134754.log
+[2025-12-15 13:48:29] [SUCCESS] EC2 instance creation completed successfully

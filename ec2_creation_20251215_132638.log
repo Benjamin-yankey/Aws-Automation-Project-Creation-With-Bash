@@ -1,0 +1,17 @@
+[2025-12-15 13:26:38] [INFO] Starting pre-flight checks...
+[2025-12-15 13:26:38] [SUCCESS] ✓ AWS CLI found
+[2025-12-15 13:26:39] [SUCCESS] ✓ AWS credentials verified (Account: 615299752577)
+[2025-12-15 13:27:12] [SUCCESS] ✓ Region selected: eu-west-1
+[2025-12-15 13:27:12] [INFO] Starting EC2 instance creation process...
+[2025-12-15 13:27:12] [STEP] [1/4] Creating EC2 key pair: devops-keypair-1765805232
+[2025-12-15 13:27:13] [SUCCESS] ✓ Key pair created and saved to devops-keypair-1765805232.pem
+[2025-12-15 13:27:13] [STEP] [2/4] Getting default VPC in eu-west-1
+[2025-12-15 13:27:14] [SUCCESS] ✓ Using VPC: vpc-002a5035159fcdf81
+[2025-12-15 13:27:14] [ERROR] ✗ AWS CLI output: 
+Error parsing parameter '--filters': Expected: ',', received: '[' for input:
+ Name=vpc-id,Values=[2025-12-15 13:27:13] [STEP] [2/4] Getting default VPC in eu-west-1
+                                         ^
+[2025-12-15 13:27:14] [SUCCESS] ✓ Using VPC: vpc-002a5035159fcdf81
+vpc-002a5035159fcdf81
+[2025-12-15 13:27:14] [ERROR] ✗ Failed to describe security groups
+[2025-12-15 13:27:14] [INFO] Check ec2_creation_20251215_132638.log for details

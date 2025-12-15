@@ -1,0 +1,15 @@
+[2025-12-15 14:09:57] [INFO] Logging initialized: ./logs/cleanup_20251215_140957.log
+==========================================
+AWS Resource Cleanup Script
+==========================================
+✓ AWS CLI is installed
+[2025-12-15 14:09:57] [SUCCESS] AWS CLI is installed
+[2025-12-15 14:10:05] [INFO] Selected region: eu-west-1
+Selected region: eu-west-1
+[2025-12-15 14:10:05] [INFO] Selected region: eu-west-1
+[2025-12-15 14:10:05] [INFO] Will clean region: eu-west-1
+[2025-12-15 14:10:05] [INFO] Verifying AWS credentials
+
+An error occurred (ExpiredToken) when calling the GetCallerIdentity operation: The security token included in the request is expired
+✗ ERROR: AWS credentials are not configured properly
+[2025-12-15 14:10:06] [ERROR] AWS credentials are not configured properly
