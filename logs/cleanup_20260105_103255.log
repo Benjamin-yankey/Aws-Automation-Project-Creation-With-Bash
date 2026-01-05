@@ -1,0 +1,77 @@
+[2026-01-05 10:32:55] [INFO] Logging initialized: ./logs/cleanup_20260105_103255.log
+[2026-01-05 10:32:55] [INFO] Dry-run mode: false
+[2026-01-05 10:32:55] [INFO] Force delete: false
+[2026-01-05 10:32:55] [INFO] === AWS Resource Cleanup Script ===
+[2026-01-05 10:32:55] [SUCCESS] AWS CLI is installed
+[2026-01-05 10:32:55] [INFO] Will clean region: eu-west-1
+[2026-01-05 10:32:55] [INFO] Verifying AWS credentials
+{
+    "UserId": "AROAY6QVZEKAQUXZ2DNTO:tY84XD3C7f__benjamin+yankey+amalitech+com",
+    "Account": "615299752577",
+    "Arn": "arn:aws:sts::615299752577:assumed-role/DCEPrincipal-dce/tY84XD3C7f__benjamin+yankey+amalitech+com"
+}
+[2026-01-05 10:32:57] [SUCCESS] AWS credentials verified (Account: 615299752577)
+[2026-01-05 10:32:57] [INFO] Configuration:
+[2026-01-05 10:32:57] [INFO]   Region(s):         ALL REGIONSfalse
+[2026-01-05 10:32:57] [INFO]   Project Tag:       AutomationLab
+[2026-01-05 10:32:57] [INFO]   Dry-Run:           false
+[2026-01-05 10:32:57] [INFO]   Force Delete:      false
+[2026-01-05 10:32:57] [INFO] === ⚠️  RESOURCE DELETION WARNING ===
+[2026-01-05 10:33:01] [INFO] User confirmed cleanup with DELETE
+[2026-01-05 10:33:01] [INFO] Starting cleanup process...
+[2026-01-05 10:33:01] [INFO] === Cleaning region: eu-west-1 ===
+[2026-01-05 10:33:01] [INFO] Step 1: Terminating EC2 instances...
+[2026-01-05 10:33:01] [INFO] Checking for EC2 instances in eu-west-1
+[2026-01-05 10:33:02] [INFO]   Found instances: i-0951a7caf0474abd9
+{
+    "TerminatingInstances": [
+        {
+            "InstanceId": "i-0951a7caf0474abd9",
+            "CurrentState": {
+                "Code": 32,
+                "Name": "shutting-down"
+            },
+            "PreviousState": {
+                "Code": 16,
+                "Name": "running"
+            }
+        }
+    ]
+}
+[2026-01-05 10:33:03] [INFO]   ⏳ Waiting for instances to terminate...
+[2026-01-05 10:34:20] [SUCCESS]   Terminated        1 instance(s) in eu-west-1
+[2026-01-05 10:34:20] [INFO] Step 2: Deleting key pairs...
+[2026-01-05 10:34:20] [INFO] Checking for key pairs in eu-west-1
+[2026-01-05 10:34:22] [SUCCESS]   Deleted key pair: devops-keypair-1767608884
+[2026-01-05 10:34:22] [SUCCESS]   Removed local file: devops-keypair-1767608884.pem
+[2026-01-05 10:34:22] [INFO] Step 3: Deleting security groups...
+[2026-01-05 10:34:22] [INFO] Checking for security groups in eu-west-1
+[2026-01-05 10:34:28] [INFO]   No security groups found in eu-west-1
+[2026-01-05 10:34:28] [INFO] === Cleaning S3 Buckets ===
+[2026-01-05 10:34:28] [INFO] Step 4: Deleting S3 buckets...
+[2026-01-05 10:34:28] [INFO] Checking for S3 buckets
+[2026-01-05 10:34:29] [INFO]   No S3 buckets found
+[2026-01-05 10:34:29] [INFO] === Local Cleanup ===
+[2026-01-05 10:34:29] [INFO] Step 5: Cleaning up local files...
+[2026-01-05 10:34:29] [INFO] Cleaning up local files
+[2026-01-05 10:34:29] [INFO]   No local files to clean
+[2026-01-05 10:34:29] [INFO] === Cleanup Summary ===
+Cleanup completed on: Mon Jan  5 10:34:29 GMT 2026
+Region(s): ALL REGIONSfalse
+Project Tag: AutomationLab
+Dry-Run Mode: false
+
+Resources Deleted:
+  EC2 Instances:      1
+  Key Pairs:          1
+  Security Groups:    0
+  S3 Buckets:         0
+  Local Files:        1
+
+Total Resources:      3
+
+Log File: ./logs/cleanup_20260105_103255.log
+==========================================
+[2026-01-05 10:34:29] [INFO] Summary saved to: ./logs/cleanup_summary.txt
+[2026-01-05 10:34:29] [SUCCESS] Cleanup completed successfully
+[2026-01-05 10:34:29] [SUCCESS] All cleanup operations completed!

@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
 
-# Script: cleanup_resources.sh
-# Purpose: Clean up all AWS resources with logging and safety checks (Optimized)
-# Author: DevOps Automation Lab
-# Date: January 2026
-
 set -euo pipefail
 
 # ===========================

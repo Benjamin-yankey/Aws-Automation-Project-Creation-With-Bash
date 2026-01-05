@@ -1,16 +1,16 @@
-Cleanup completed on: Mon Jan  5 10:20:18 GMT 2026
+Cleanup completed on: Mon Jan  5 10:34:29 GMT 2026
 Region(s): ALL REGIONSfalse
 Project Tag: AutomationLab
 Dry-Run Mode: false
 
 Resources Deleted:
-  EC2 Instances:      0
-  Key Pairs:          0
+  EC2 Instances:      1
+  Key Pairs:          1
   Security Groups:    0
   S3 Buckets:         0
-  Local Files:        0
+  Local Files:        1
 
-Total Resources:      0
+Total Resources:      3
 
-Log File: ./logs/cleanup_20260105_102000.log
+Log File: ./logs/cleanup_20260105_103255.log
 ==========================================
