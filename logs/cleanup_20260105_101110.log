@@ -1,0 +1,83 @@
+[2026-01-05 10:11:11] [INFO] Logging initialized: ./logs/cleanup_20260105_101110.log
+[2026-01-05 10:11:11] [INFO] Dry-run mode: false
+[2026-01-05 10:11:11] [INFO] Force delete: false
+[2026-01-05 10:11:11] [INFO] === AWS Resource Cleanup Script ===
+[2026-01-05 10:11:11] [SUCCESS] AWS CLI is installed
+[2026-01-05 10:11:11] [INFO] Will clean region: eu-west-1
+[2026-01-05 10:11:11] [INFO] Verifying AWS credentials
+{
+    "UserId": "AROAY6QVZEKAQUXZ2DNTO:tY84XD3C7f__benjamin+yankey+amalitech+com",
+    "Account": "615299752577",
+    "Arn": "arn:aws:sts::615299752577:assumed-role/DCEPrincipal-dce/tY84XD3C7f__benjamin+yankey+amalitech+com"
+}
+[2026-01-05 10:11:12] [SUCCESS] AWS credentials verified (Account: 615299752577)
+[2026-01-05 10:11:12] [INFO] Configuration:
+[2026-01-05 10:11:12] [INFO]   Region(s):         ALL REGIONSfalse
+[2026-01-05 10:11:12] [INFO]   Project Tag:       AutomationLab
+[2026-01-05 10:11:12] [INFO]   Dry-Run:           false
+[2026-01-05 10:11:12] [INFO]   Force Delete:      false
+[2026-01-05 10:11:12] [INFO] === ⚠️  RESOURCE DELETION WARNING ===
+[2026-01-05 10:11:24] [INFO] User confirmed cleanup with DELETE
+[2026-01-05 10:11:24] [INFO] Starting cleanup process...
+[2026-01-05 10:11:24] [INFO] === Cleaning region: eu-west-1 ===
+[2026-01-05 10:11:24] [INFO] Step 1: Terminating EC2 instances...
+[2026-01-05 10:11:24] [INFO] Checking for EC2 instances in eu-west-1
+[2026-01-05 10:11:25] [INFO]   No EC2 instances found in eu-west-1
+[2026-01-05 10:11:25] [INFO] Step 2: Deleting key pairs...
+[2026-01-05 10:11:25] [INFO] Checking for key pairs in eu-west-1
+[2026-01-05 10:11:26] [INFO]   No key pairs found in eu-west-1
+[2026-01-05 10:11:26] [INFO] Step 3: Deleting security groups...
+[2026-01-05 10:11:26] [INFO] Checking for security groups in eu-west-1
+[2026-01-05 10:11:32] [INFO]   No security groups found in eu-west-1
+[2026-01-05 10:11:32] [INFO] === Cleaning S3 Buckets ===
+[2026-01-05 10:11:32] [INFO] Step 4: Deleting S3 buckets...
+[2026-01-05 10:11:32] [INFO] Checking for S3 buckets
+[2026-01-05 10:11:34] [INFO]   Processing bucket: devops-automation-lab-1767607210-1079 (region: eu-west-1)
+[2026-01-05 10:11:34] [INFO]     Removing versioned objects...
+[2026-01-05 10:11:36] [INFO]     Emptying bucket...
+remove_bucket: devops-automation-lab-1767607210-1079
+
+An error occurred (NoSuchBucket) when calling the DeleteBucket operation: The specified bucket does not exist
+[2026-01-05 10:11:40] [WARN]   Could not delete bucket: devops-automation-lab-1767607210-1079 (may still contain objects)
+fatal error: An error occurred (NoSuchBucket) when calling the ListObjectsV2 operation: The specified bucket does not exist
+
+remove_bucket failed: Unable to delete all objects in the bucket, bucket will not be deleted.
+[2026-01-05 10:11:41] [ERROR]   Failed to delete bucket: devops-automation-lab-1767607210-1079
+[2026-01-05 10:11:41] [INFO]   Processing bucket: devops-automation-lab-1767607832-11249 (region: eu-west-1)
+[2026-01-05 10:11:41] [INFO]     Removing versioned objects...
+{
+    "VersionId": "G5dFQ6ameTfiA3xlG8cSGoqQ.0oVeBHY"
+}
+[2026-01-05 10:11:44] [INFO]     Emptying bucket...
+remove_bucket: devops-automation-lab-1767607832-11249
+
+An error occurred (NoSuchBucket) when calling the DeleteBucket operation: The specified bucket does not exist
+[2026-01-05 10:11:48] [WARN]   Could not delete bucket: devops-automation-lab-1767607832-11249 (may still contain objects)
+fatal error: An error occurred (NoSuchBucket) when calling the ListObjectsV2 operation: The specified bucket does not exist
+
+remove_bucket failed: Unable to delete all objects in the bucket, bucket will not be deleted.
+[2026-01-05 10:11:49] [ERROR]   Failed to delete bucket: devops-automation-lab-1767607832-11249
+[2026-01-05 10:11:49] [INFO] === Local Cleanup ===
+[2026-01-05 10:11:49] [INFO] Step 5: Cleaning up local files...
+[2026-01-05 10:11:49] [INFO] Cleaning up local files
+[2026-01-05 10:11:49] [INFO]   No local files to clean
+[2026-01-05 10:11:49] [INFO] === Cleanup Summary ===
+Cleanup completed on: Mon Jan  5 10:11:49 GMT 2026
+Region(s): ALL REGIONSfalse
+Project Tag: AutomationLab
+Dry-Run Mode: false
+
+Resources Deleted:
+  EC2 Instances:      0
+  Key Pairs:          0
+  Security Groups:    0
+  S3 Buckets:         0
+  Local Files:        0
+
+Total Resources:      0
+
+Log File: ./logs/cleanup_20260105_101110.log
+==========================================
+[2026-01-05 10:11:49] [INFO] Summary saved to: ./logs/cleanup_summary.txt
+[2026-01-05 10:11:49] [SUCCESS] Cleanup completed successfully
+[2026-01-05 10:11:49] [SUCCESS] All cleanup operations completed!

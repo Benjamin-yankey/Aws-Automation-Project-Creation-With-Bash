@@ -1,0 +1,20 @@
+[2026-01-05 10:10:54] [INFO] Logging initialized: ./logs/cleanup_20260105_101054.log
+[2026-01-05 10:10:54] [INFO] Dry-run mode: false
+[2026-01-05 10:10:54] [INFO] Force delete: false
+[2026-01-05 10:10:54] [INFO] === AWS Resource Cleanup Script ===
+[2026-01-05 10:10:54] [SUCCESS] AWS CLI is installed
+[2026-01-05 10:10:54] [INFO] Will clean region: eu-west-1
+[2026-01-05 10:10:54] [INFO] Verifying AWS credentials
+{
+    "UserId": "AROAY6QVZEKAQUXZ2DNTO:tY84XD3C7f__benjamin+yankey+amalitech+com",
+    "Account": "615299752577",
+    "Arn": "arn:aws:sts::615299752577:assumed-role/DCEPrincipal-dce/tY84XD3C7f__benjamin+yankey+amalitech+com"
+}
+[2026-01-05 10:10:56] [SUCCESS] AWS credentials verified (Account: 615299752577)
+[2026-01-05 10:10:56] [INFO] Configuration:
+[2026-01-05 10:10:56] [INFO]   Region(s):         ALL REGIONSfalse
+[2026-01-05 10:10:56] [INFO]   Project Tag:       AutomationLab
+[2026-01-05 10:10:56] [INFO]   Dry-Run:           false
+[2026-01-05 10:10:56] [INFO]   Force Delete:      false
+[2026-01-05 10:10:56] [INFO] === ⚠️  RESOURCE DELETION WARNING ===
+[2026-01-05 10:10:58] [INFO] Cleanup cancelled by user

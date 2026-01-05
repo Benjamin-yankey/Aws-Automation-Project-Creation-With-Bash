@@ -1,0 +1,50 @@
+[2026-01-05 10:10:32] [INFO] Logging initialized: ./logs/s3_creation_20260105_101032.log
+[2026-01-05 10:10:32] [INFO] Dry-run mode: false
+[2026-01-05 10:10:32] [INFO] === S3 Bucket Creation Script ===
+[2026-01-05 10:10:32] [SUCCESS] AWS CLI is installed
+[2026-01-05 10:10:32] [INFO] Bucket name validation passed: devops-automation-lab-1767607832-11249
+[2026-01-05 10:10:32] [INFO] Verifying AWS credentials
+[2026-01-05 10:10:33] [SUCCESS] AWS credentials verified for region: eu-west-1
+[2026-01-05 10:10:33] [INFO] Configuration:
+[2026-01-05 10:10:33] [INFO]   Region:            eu-west-1
+[2026-01-05 10:10:33] [INFO]   Bucket Name:       devops-automation-lab-1767607832-11249
+[2026-01-05 10:10:33] [INFO]   Versioning:        true
+[2026-01-05 10:10:33] [INFO]   Encryption:        true
+[2026-01-05 10:10:33] [INFO]   Public Access:     false
+[2026-01-05 10:10:33] [INFO]   Upload Sample:     true
+[2026-01-05 10:10:33] [INFO] Step 1: Creating sample file...
+[2026-01-05 10:10:33] [INFO] Creating temporary sample file
+[2026-01-05 10:10:33] [SUCCESS] Sample file created: welcome.XXXXXX.txt
+[2026-01-05 10:10:33] [INFO] Step 2: Creating S3 bucket...
+
+An error occurred (404) when calling the HeadBucket operation: Not Found
+[2026-01-05 10:10:34] [INFO] Creating S3 bucket: devops-automation-lab-1767607832-11249
+
+An error occurred (404) when calling the HeadBucket operation: Not Found
+[2026-01-05 10:10:36] [SUCCESS] Bucket created: devops-automation-lab-1767607832-11249
+[2026-01-05 10:10:36] [INFO] Step 3: Adding tags...
+[2026-01-05 10:10:36] [INFO] Adding tags to bucket
+[2026-01-05 10:10:38] [SUCCESS] Tags applied to bucket
+[2026-01-05 10:10:38] [INFO] Step 4: Enabling versioning...
+[2026-01-05 10:10:38] [INFO] Enabling versioning on bucket
+[2026-01-05 10:10:39] [SUCCESS] Versioning enabled
+[2026-01-05 10:10:39] [INFO] Step 5: Enabling encryption...
+[2026-01-05 10:10:39] [INFO] Enabling default encryption (AES256)
+[2026-01-05 10:10:40] [SUCCESS] Default encryption enabled (AES256)
+[2026-01-05 10:10:40] [INFO] Step 6: Configuring public access...
+[2026-01-05 10:10:40] [INFO] Enabling Block Public Access settings
+[2026-01-05 10:10:41] [SUCCESS] Public access blocked (recommended security setting)
+[2026-01-05 10:10:41] [INFO] Skipping public bucket policy (recommended for security)
+[2026-01-05 10:10:41] [INFO] Step 7: Uploading sample file...
+[2026-01-05 10:10:41] [INFO] Uploading sample file to bucket
+[2026-01-05 10:10:41] [SUCCESS] File uploaded: welcome.txt
+[2026-01-05 10:10:41] [INFO] Step 8: Finalizing...
+[2026-01-05 10:10:41] [INFO] Retrieving bucket details
+[2026-01-05 10:10:43] [SUCCESS] Retrieved bucket details
+[2026-01-05 10:10:43] [INFO] Listing bucket contents
+[2026-01-05 10:10:44] [INFO] === S3 Bucket Created Successfully! ===
+[2026-01-05 10:10:44] [SUCCESS] Outputs exported to ./logs/outputs.env
+[2026-01-05 10:10:44] [INFO] Outputs: BUCKET_NAME=devops-automation-lab-1767607832-11249, REGION=eu-west-1
+[2026-01-05 10:10:44] [SUCCESS] S3 bucket creation completed successfully
+[2026-01-05 10:10:44] [SUCCESS] All operations completed!
+[2026-01-05 10:10:44] [INFO] Cleaned up temporary file: /var/folders/c8/5zbrh3t57qb_jpx79pb8l35m0000gn/T//welcome.XXXXXX.txt

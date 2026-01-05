@@ -1,0 +1,54 @@
+[2026-01-05 10:05:30] [INFO] Logging initialized: ./logs/cleanup_20260105_100530.log
+==========================================
+AWS Resource Cleanup Script
+==========================================
+✓ AWS CLI is installed
+[2026-01-05 10:05:30] [SUCCESS] AWS CLI is installed
+[2026-01-05 10:05:34] [INFO] Selected region: eu-west-1
+Selected region: eu-west-1
+[2026-01-05 10:05:34] [INFO] Selected region: eu-west-1
+[2026-01-05 10:05:34] [INFO] Will clean region: eu-west-1
+[2026-01-05 10:05:34] [INFO] Verifying AWS credentials
+{
+    "UserId": "AROAY6QVZEKAQUXZ2DNTO:tY84XD3C7f__benjamin+yankey+amalitech+com",
+    "Account": "615299752577",
+    "Arn": "arn:aws:sts::615299752577:assumed-role/DCEPrincipal-dce/tY84XD3C7f__benjamin+yankey+amalitech+com"
+}
+✓ AWS credentials verified
+[2026-01-05 10:05:35] [SUCCESS] AWS credentials verified
+==========================================
+WARNING: Resource Cleanup
+==========================================
+[2026-01-05 10:05:39] [INFO] User confirmed cleanup
+Starting cleanup process...
+[2026-01-05 10:05:39] [INFO] Starting cleanup process...
+==========================================
+Cleaning region: eu-west-1
+==========================================
+[1/3] Terminating EC2 instances...
+[2026-01-05 10:05:39] [INFO] [1/3] Terminating EC2 instances...
+[2026-01-05 10:05:39] [INFO] Checking for EC2 instances in eu-west-1
+  No EC2 instances found in eu-west-1
+[2026-01-05 10:05:40] [INFO]   No EC2 instances found in eu-west-1
+[2/3] Deleting key pairs...
+[2026-01-05 10:05:40] [INFO] [2/3] Deleting key pairs...
+[2026-01-05 10:05:40] [INFO] Checking for key pairs in eu-west-1
+  No key pairs found in eu-west-1
+[2026-01-05 10:05:41] [INFO]   No key pairs found in eu-west-1
+[3/3] Deleting security groups...
+[2026-01-05 10:05:41] [INFO] [3/3] Deleting security groups...
+[2026-01-05 10:05:41] [INFO] Checking for security groups in eu-west-1
+  No security groups found in eu-west-1
+[2026-01-05 10:05:47] [INFO]   No security groups found in eu-west-1
+==========================================
+Cleaning S3 Buckets
+==========================================
+[4/4] Deleting S3 buckets...
+[2026-01-05 10:05:47] [INFO] [4/4] Deleting S3 buckets...
+[2026-01-05 10:05:47] [INFO] Checking for S3 buckets
+  Emptying bucket: devops-automation-lab-1767607210-1079
+[2026-01-05 10:05:49] [INFO]   Emptying bucket: devops-automation-lab-1767607210-1079
+{
+    "VersionId": "gLPdM9RuBkW08Wrk0nrSfYoL9A1sCIwK"
+}
+jq: error (at <stdin>:1): Cannot iterate over null (null)
