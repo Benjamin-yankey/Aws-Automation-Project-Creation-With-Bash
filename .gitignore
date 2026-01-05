@@ -20,4 +20,5 @@ Thumbs.db
 .idea/
 *.log
 logs/
-*.log
+temp/
+.gitkeep
