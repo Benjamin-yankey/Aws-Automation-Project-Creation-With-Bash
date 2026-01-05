@@ -1,0 +1,33 @@
+[2026-01-05 09:28:02] [INFO] Logging initialized: ./logs/sg_creation_20260105_092802.log
+[2026-01-05 09:28:02] [INFO] Dry-run mode: false
+[2026-01-05 09:28:02] [INFO] === Security Group Creation Script ===
+[2026-01-05 09:28:02] [SUCCESS] AWS CLI is installed
+[2026-01-05 09:28:02] [INFO] Verifying AWS credentials
+[2026-01-05 09:28:03] [SUCCESS] AWS credentials verified for region: eu-west-1
+[2026-01-05 09:28:03] [INFO] Auto-detecting your public IP for SSH access...
+[2026-01-05 09:28:03] [SUCCESS] Detected IP: 196.61.44.164/32
+[2026-01-05 09:28:03] [INFO] Configuration:
+[2026-01-05 09:28:03] [INFO]   Region: eu-west-1
+[2026-01-05 09:28:03] [INFO]   SG Name: devops-sg-1767605282
+[2026-01-05 09:28:03] [INFO]   SSH CIDR: 196.61.44.164/32
+[2026-01-05 09:28:03] [INFO]   HTTP CIDR: 0.0.0.0/0
+[2026-01-05 09:28:03] [INFO] Step 1: Getting default VPC...
+[2026-01-05 09:28:03] [INFO] Getting default VPC in eu-west-1
+[2026-01-05 09:28:04] [SUCCESS] Using VPC: vpc-002a5035159fcdf81
+[2026-01-05 09:28:04] [INFO] Step 2: Creating security group...
+[2026-01-05 09:28:04] [INFO] Creating security group: devops-sg-1767605282
+[2026-01-05 09:28:05] [SUCCESS] Security group created: sg-0fb8af514d1e91f1e
+[2026-01-05 09:28:05] [INFO] Step 3: Adding tags...
+[2026-01-05 09:28:05] [INFO] Tagging security group
+[2026-01-05 09:28:06] [SUCCESS] Tags applied to security group
+[2026-01-05 09:28:06] [INFO] Step 4: Configuring ingress rules...
+[2026-01-05 09:28:06] [INFO] Adding security group ingress rules...
+[2026-01-05 09:28:06] [INFO] Valid CIDR format for SSH: 196.61.44.164/32
+[2026-01-05 09:28:06] [INFO] Adding ingress rule: tcp/22 from 196.61.44.164/32
+[2026-01-05 09:28:09] [SUCCESS] SSH rule added (196.61.44.164/32:22)
+[2026-01-05 09:28:09] [INFO] Valid CIDR format for HTTP: 0.0.0.0/0
+[2026-01-05 09:28:09] [INFO] Adding ingress rule: tcp/80 from 0.0.0.0/0
+[2026-01-05 09:28:11] [SUCCESS] HTTP rule added (0.0.0.0/0:80)
+[2026-01-05 09:28:11] [INFO] Step 5: Finalizing...
+[2026-01-05 09:28:11] [INFO] Generating summary
+[2026-01-05 09:28:11] [INFO] === Security Group Created Successfully! ===

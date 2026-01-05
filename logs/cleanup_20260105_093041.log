@@ -1,0 +1,6 @@
+[2026-01-05 09:30:42] [INFO] Logging initialized: ./logs/cleanup_20260105_093041.log
+==========================================
+AWS Resource Cleanup Script
+==========================================
+✓ AWS CLI is installed
+[2026-01-05 09:30:42] [SUCCESS] AWS CLI is installed
