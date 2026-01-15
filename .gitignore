@@ -22,3 +22,8 @@ Thumbs.db
 logs/
 temp/
 .gitkeep
+# Python files
+*.pyc
+__pycache__/
+
+                

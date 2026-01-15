@@ -1,120 +1,135 @@
-#!/bin/bash
-
-# Script: create_ec2.sh
-# Purpose: Automate EC2 instance creation with logging and user input
-# Author: DevOps Automation Lab
-# Date: December 2025
-
-set -euo pipefail
+#!/usr/bin/env bash
 
 # ===========================
 # CONFIGURATION
 # ===========================
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_NAME="create_ec2.sh"
 LOG_DIR="./logs"
-LOG_FILE="${LOG_DIR}/ec2_creation_$(date +%Y%m%d_%H%M%S).log"
-INSTANCE_TYPE="t3.micro"
-KEY_NAME="devops-keypair-$(date +%s)"
-INSTANCE_NAME="AutomationLab-EC2"
 
-# ===========================
-# UTILITY FUNCTIONS
-# ===========================
+# Determine lib directory location
+LIB_DIR="${SCRIPT_DIR}/lib"
 
-# Initialize logging
-init_logging() {
-    mkdir -p "$LOG_DIR"
-    touch "$LOG_FILE"
-    log "INFO" "Logging initialized: $LOG_FILE"
-}
-
-# Logging function
-log() {
-    local level="$1"
-    shift
-    local message="$*"
-    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    echo "[$timestamp] [$level] $message" | tee -a "$LOG_FILE"
-}
-
-# Print section header
-print_header() {
-    local title="$1"
-    echo ""
-    echo "==========================================" | tee -a "$LOG_FILE"
-    echo "$title" | tee -a "$LOG_FILE"
-    echo "==========================================" | tee -a "$LOG_FILE"
-}
-
-# Print success message
-print_success() {
-    local message="$1"
-    echo "✓ $message" | tee -a "$LOG_FILE"
-    log "SUCCESS" "$message"
-}
-
-# Print error message and exit
-print_error() {
-    local message="$1"
-    echo "✗ ERROR: $message" | tee -a "$LOG_FILE"
-    log "ERROR" "$message"
+# Source common utilities and state manager
+if [ -f "${LIB_DIR}/common_utils.sh" ]; then
+    source "${LIB_DIR}/common_utils.sh"
+else
+    echo "Error: common_utils.sh not found in ${LIB_DIR}"
+    echo "Current directory: $(pwd)"
+    echo "Script directory: ${SCRIPT_DIR}"
+    echo "Looking for: ${LIB_DIR}/common_utils.sh"
     exit 1
+fi
+
+if [ -f "${SCRIPT_DIR}/state_manager.sh" ]; then
+    source "${SCRIPT_DIR}/state_manager.sh"
+elif [ -f "${LIB_DIR}/state_manager.sh" ]; then
+    source "${LIB_DIR}/state_manager.sh"
+else
+    echo "Error: state_manager.sh not found in ${SCRIPT_DIR} or ${LIB_DIR}"
+    echo "Current directory: $(pwd)"
+    echo "Script directory: ${SCRIPT_DIR}"
+    echo "Lib directory: ${LIB_DIR}"
+    exit 1
+fi
+
+export LOG_FILE="${LOG_DIR}/ec2_creation_$(date +%Y%m%d_%H%M%S).log"
+
+# Default configuration
+INSTANCE_TYPE="${INSTANCE_TYPE:-t3.micro}"
+KEY_NAME="${KEY_NAME:-devops-keypair-$(date +%s)}"
+INSTANCE_NAME="${INSTANCE_NAME:-AutomationLab-EC2}"
+REGION="${REGION:-eu-west-1}"
+DRY_RUN="${DRY_RUN:-false}"
+
+# Resource variables
+AMI_ID=""
+VPC_ID=""
+SECURITY_GROUP=""
+INSTANCE_ID=""
+
+# ===========================
+# USAGE
+# ===========================
+
+usage() {
+    cat <<EOF
+Usage: $SCRIPT_NAME [OPTIONS]
+
+Create an EC2 instance with automated configuration.
+
+OPTIONS:
+  -d, --dry-run              Preview mode - no actual changes
+  -r, --region REGION        AWS region (default: eu-west-1)
+  -t, --instance-type TYPE   Instance type (default: t3.micro)
+  -n, --name NAME            Instance name (default: AutomationLab-EC2)
+  -h, --help                 Show this help message
+
+EXAMPLES:
+  $SCRIPT_NAME --dry-run
+  $SCRIPT_NAME --region us-east-1 --instance-type t3.small
+  
+ENVIRONMENT VARIABLES:
+  DRY_RUN                    Enable dry-run mode (true/false)
+  REGION                     AWS region
+  INSTANCE_TYPE              EC2 instance type
+  INSTANCE_NAME              Instance name tag
+  KEY_NAME                   Key pair name
+
+EOF
+    exit 0
 }
 
-# Print info message
-print_info() {
-    local message="$1"
-    echo "$message" | tee -a "$LOG_FILE"
-    log "INFO" "$message"
+# ===========================
+# ARGUMENT PARSING
+# ===========================
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dry-run|-d)
+                export DRY_RUN=true
+                shift
+                ;;
+            --region|-r)
+                export REGION="$2"
+                shift 2
+                ;;
+            --instance-type|-t)
+                export INSTANCE_TYPE="$2"
+                shift 2
+                ;;
+            --name|-n)
+                export INSTANCE_NAME="$2"
+                shift 2
+                ;;
+            --help|-h)
+                usage
+                ;;
+            *)
+                log_error "Unknown option: $1"
+                echo "Use --help for usage information"
+                exit 1
+                ;;
+        esac
+    done
 }
 
-# Validate AWS CLI is installed
-validate_aws_cli() {
-    if ! command -v aws &> /dev/null; then
-        print_error "AWS CLI is not installed. Please install it first."
-    fi
-    print_success "AWS CLI is installed"
-}
+# ===========================
+# RESOURCE CREATION FUNCTIONS
+# ===========================
 
-# Get AWS region from user
-get_region() {
-    local default_region="eu-west-1"
-    
-    echo ""
-    echo "Available AWS Regions:"
-    echo "  1. eu-west-1 (Ireland)"
-    echo "  2. us-east-1 (N. Virginia)"
-    echo "  3. us-west-2 (Oregon)"
-    echo "  4. ap-southeast-1 (Singapore)"
-    echo "  5. Custom region"
-    echo ""
-    
-    read -p "Enter region number or press Enter for eu-west-1 [$default_region]: " region_choice
-    
-    case "$region_choice" in
-        1|"") REGION="eu-west-1" ;;
-        2) REGION="us-east-1" ;;
-        3) REGION="us-west-2" ;;
-        4) REGION="ap-southeast-1" ;;
-        5)
-            read -p "Enter custom region: " REGION
-            ;;
-        *)
-            REGION="$default_region"
-            ;;
-    esac
-    
-    log "INFO" "Selected region: $REGION"
-    print_info "Selected region: $REGION"
-}
-
-# Get AMI ID for the selected region
 get_ami_id() {
     local region="$1"
     
-    log "INFO" "Fetching latest Amazon Linux 2023 AMI for $region"
+    log_info "Fetching latest Amazon Linux 2023 AMI for $region"
     
-    # Get the latest Amazon Linux 2023 AMI
+    if dry_run_guard "Would fetch AMI for $region"; then
+        AMI_ID="ami-dry-run-12345"
+        log_info "Using dry-run AMI: $AMI_ID"
+        return 0
+    fi
+    
     AMI_ID=$(aws ec2 describe-images \
         --region "$region" \
         --owners amazon \
@@ -123,27 +138,21 @@ get_ami_id() {
         --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId' \
         --output text 2>> "$LOG_FILE")
     
-    if [ -z "$AMI_ID" ] || [ "$AMI_ID" == "None" ]; then
-        print_error "Could not find suitable AMI in region $region"
+    if [ -z "$AMI_ID" ] || [ "$AMI_ID" = "None" ]; then
+        log_error "Could not find suitable AMI in region $region"
+        exit 1
     fi
     
-    print_success "Found AMI: $AMI_ID"
+    log_success "Found AMI: $AMI_ID"
 }
 
-# Verify AWS credentials
-verify_credentials() {
-    log "INFO" "Verifying AWS credentials"
-    
-    if ! aws sts get-caller-identity --region "$REGION" &> "$LOG_FILE"; then
-        print_error "AWS credentials are not configured properly"
-    fi
-    
-    print_success "AWS credentials verified"
-}
-
-# Create EC2 key pair
 create_key_pair() {
-    log "INFO" "Creating EC2 key pair: $KEY_NAME"
+    log_info "Creating EC2 key pair: $KEY_NAME"
+    
+    if dry_run_guard "Would create key pair $KEY_NAME"; then
+        log_info "Key pair would be saved to: ${KEY_NAME}.pem"
+        return 0
+    fi
     
     aws ec2 create-key-pair \
         --key-name "$KEY_NAME" \
@@ -152,29 +161,21 @@ create_key_pair() {
         --output text > "${KEY_NAME}.pem" 2>> "$LOG_FILE"
     
     chmod 400 "${KEY_NAME}.pem"
-    print_success "Key pair created: ${KEY_NAME}.pem"
+    
+    # Register in state
+    add_key_pair "$KEY_NAME" "$REGION"
+    
+    log_success "Key pair created: ${KEY_NAME}.pem"
 }
 
-# Get default VPC ID
-get_vpc_id() {
-    log "INFO" "Getting default VPC"
+get_default_security_group() {
+    log_info "Getting default security group"
     
-    VPC_ID=$(aws ec2 describe-vpcs \
-        --region "$REGION" \
-        --filters "Name=isDefault,Values=true" \
-        --query 'Vpcs[0].VpcId' \
-        --output text 2>> "$LOG_FILE")
-    
-    if [ -z "$VPC_ID" ] || [ "$VPC_ID" == "None" ]; then
-        print_error "No default VPC found in $REGION"
+    if dry_run_guard "Would get default security group"; then
+        SECURITY_GROUP="sg-dry-run-12345"
+        log_info "Using dry-run security group: $SECURITY_GROUP"
+        return 0
     fi
-    
-    print_success "Using VPC: $VPC_ID"
-}
-
-# Get default security group
-get_security_group() {
-    log "INFO" "Getting default security group"
     
     SECURITY_GROUP=$(aws ec2 describe-security-groups \
         --region "$REGION" \
@@ -182,12 +183,22 @@ get_security_group() {
         --query 'SecurityGroups[0].GroupId' \
         --output text 2>> "$LOG_FILE")
     
-    print_success "Using security group: $SECURITY_GROUP"
+    if [ -z "$SECURITY_GROUP" ] || [ "$SECURITY_GROUP" = "None" ]; then
+        log_error "Could not find default security group"
+        exit 1
+    fi
+    
+    log_success "Using security group: $SECURITY_GROUP"
 }
 
-# Launch EC2 instance
 launch_instance() {
-    log "INFO" "Launching EC2 instance ($INSTANCE_TYPE)"
+    log_info "Launching EC2 instance ($INSTANCE_TYPE)"
+    
+    if dry_run_guard "Would launch EC2 instance"; then
+        INSTANCE_ID="i-dry-run-67890"
+        log_info "Instance would be created with ID: $INSTANCE_ID"
+        return 0
+    fi
     
     INSTANCE_ID=$(aws ec2 run-instances \
         --image-id "$AMI_ID" \
@@ -200,29 +211,46 @@ launch_instance() {
         --output text 2>> "$LOG_FILE")
     
     if [ -z "$INSTANCE_ID" ]; then
-        print_error "Failed to launch instance"
+        log_error "Failed to launch instance"
+        exit 1
     fi
     
-    print_success "Instance launched: $INSTANCE_ID"
+    # Register in state
+    local sg_json="[\"$SECURITY_GROUP\"]"
+    add_ec2_instance "$INSTANCE_ID" "$INSTANCE_NAME" "$INSTANCE_TYPE" "$KEY_NAME" "$sg_json" "pending"
+    
+    log_success "Instance launched: $INSTANCE_ID"
 }
 
-# Wait for instance to be running
 wait_for_instance() {
-    log "INFO" "Waiting for instance to enter running state"
-    print_info "⏳ This may take 30-60 seconds..."
+    log_info "Waiting for instance to enter running state"
+    
+    if dry_run_guard "Would wait for instance $INSTANCE_ID"; then
+        return 0
+    fi
+    
+    log_info "⏳ This may take 30-60 seconds..."
     
     if ! aws ec2 wait instance-running \
         --instance-ids "$INSTANCE_ID" \
         --region "$REGION" 2>> "$LOG_FILE"; then
-        print_error "Instance failed to reach running state"
+        log_error "Instance failed to reach running state"
+        exit 1
     fi
     
-    print_success "Instance is now running"
+    log_success "Instance is now running"
 }
 
-# Get instance details
 get_instance_details() {
-    log "INFO" "Retrieving instance details"
+    log_info "Retrieving instance details"
+    
+    if dry_run_guard "Would retrieve instance details"; then
+        PUBLIC_IP="203.0.113.1"
+        PRIVATE_IP="10.0.1.10"
+        log_info "Public IP: $PUBLIC_IP"
+        log_info "Private IP: $PRIVATE_IP"
+        return 0
+    fi
     
     PUBLIC_IP=$(aws ec2 describe-instances \
         --instance-ids "$INSTANCE_ID" \
@@ -236,14 +264,17 @@ get_instance_details() {
         --query 'Reservations[0].Instances[0].PrivateIpAddress' \
         --output text 2>> "$LOG_FILE")
     
-    print_success "Retrieved instance details"
+    log_success "Retrieved instance details"
 }
 
-# Display results
+# ===========================
+# OUTPUT & CLEANUP
+# ===========================
+
 display_results() {
     print_header "EC2 Instance Created Successfully!"
     
-    cat <<EOF | tee -a "$LOG_FILE"
+    cat <<EOF
 Instance ID:     $INSTANCE_ID
 Instance Type:   $INSTANCE_TYPE
 Region:          $REGION
@@ -257,66 +288,85 @@ VPC ID:          $VPC_ID
 To connect via SSH, use:
   ssh -i ${KEY_NAME}.pem ec2-user@$PUBLIC_IP
 
-Log file saved to: $LOG_FILE
+Log file: $LOG_FILE
 EOF
 }
 
-# Cleanup on error
 cleanup_on_error() {
-    log "ERROR" "Script failed. Cleaning up..."
+    log_error "Script failed, attempting cleanup..."
+    
+    if [ "${DRY_RUN:-false}" = "true" ]; then
+        log_info "Dry-run mode - no actual cleanup needed"
+        return
+    fi
     
     if [ -n "${KEY_NAME:-}" ]; then
         aws ec2 delete-key-pair --key-name "$KEY_NAME" --region "$REGION" 2>> "$LOG_FILE" || true
         rm -f "${KEY_NAME}.pem" 2>> "$LOG_FILE" || true
+        remove_key_pair "$KEY_NAME" 2>/dev/null || true
     fi
     
     if [ -n "${INSTANCE_ID:-}" ]; then
         aws ec2 terminate-instances --instance-ids "$INSTANCE_ID" --region "$REGION" 2>> "$LOG_FILE" || true
+        remove_ec2_instance "$INSTANCE_ID" 2>/dev/null || true
     fi
-    
-    print_error "Script execution failed. Check log file: $LOG_FILE"
 }
 
 # ===========================
 # MAIN EXECUTION
 # ===========================
 main() {
-    # Set up error trap
+    # Parse command-line arguments first
+    parse_args "$@"
+    
+    # Setup error handling with cleanup
     trap cleanup_on_error ERR
     
     # Initialize
-    init_logging
     print_header "EC2 Instance Creation Script"
     
-    # Validate and setup
-    validate_aws_cli
-    get_region
-    get_ami_id "$REGION"
-    verify_credentials
+    # Load existing state
+    load_state
     
-    # Create resources
-    print_info "[1/7] Creating EC2 key pair..."
+    # Validate prerequisites
+    require_command "aws" "Install from: https://aws.amazon.com/cli/"
+    require_command "jq" "Install from: https://stedolan.github.io/jq/"
+    
+    # Verify credentials
+    verify_aws_credentials "$REGION"
+    
+    # Get AMI
+    log_info "[1/7] Fetching AMI..."
+    get_ami_id "$REGION"
+    
+    # Get VPC
+    log_info "[2/7] Getting default VPC..."
+    VPC_ID=$(get_default_vpc "$REGION")
+    
+    # Get security group
+    log_info "[3/7] Getting security group..."
+    get_default_security_group
+    
+    # Create key pair
+    log_info "[4/7] Creating EC2 key pair..."
     create_key_pair
     
-    print_info "[2/7] Getting default VPC..."
-    get_vpc_id
-    
-    print_info "[3/7] Getting security group..."
-    get_security_group
-    
-    print_info "[4/7] Launching EC2 instance..."
+    # Launch instance
+    log_info "[5/7] Launching EC2 instance..."
     launch_instance
     
-    print_info "[5/7] Waiting for instance to be running..."
+    # Wait for running state
+    log_info "[6/7] Waiting for instance..."
     wait_for_instance
     
-    print_info "[6/7] Retrieving instance details..."
+    # Get details
+    log_info "[7/7] Retrieving details..."
     get_instance_details
     
-    print_info "[7/7] Finalizing..."
+    # Display results
     display_results
     
-    log "SUCCESS" "EC2 instance creation completed successfully"
+    log_success "EC2 instance creation completed successfully"
 }
 
 # Run main function

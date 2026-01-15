@@ -1,27 +1,23 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
-
 # ===========================
 # CONFIGURATION
 # ===========================
-SCRIPT_NAME="$(basename "$0")"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_NAME="cleanup_resources.sh"
 LOG_DIR="./logs"
-LOG_FILE="${LOG_DIR}/cleanup_$(date +%Y%m%d_%H%M%S).log"
-OUTPUT_FILE="${LOG_DIR}/cleanup_summary.txt"
+export LOG_FILE="${LOG_DIR}/cleanup_$(date +%Y%m%d_%H%M%S).log"
 
-# Detect AWS CLI default region or use fallback
-AWS_DEFAULT_REGION=$(aws configure get region 2>/dev/null || echo "")
-REGION="${REGION:-${AWS_DEFAULT_REGION:-eu-west-1}}"
+# Source common utilities and state manager
+source "${SCRIPT_DIR}/lib/common_utils.sh"
+source "${SCRIPT_DIR}/state_manager.sh"
 
-# Environment variables with defaults
-PROJECT_TAG="${PROJECT_TAG:-AutomationLab}"
+# Default configuration
+REGION="${REGION:-eu-west-1}"
 DRY_RUN="${DRY_RUN:-false}"
-FORCE_DELETE="${FORCE_DELETE:-false}"
-DELETE_ALL_REGIONS="${DELETE_ALL_REGIONS:-false}"
 SKIP_CONFIRMATION="${SKIP_CONFIRMATION:-false}"
 
-# Tracking variables
+# Tracking counters
 DELETED_INSTANCES=0
 DELETED_KEY_PAIRS=0
 DELETED_SECURITY_GROUPS=0
@@ -29,578 +25,483 @@ DELETED_BUCKETS=0
 DELETED_LOCAL_FILES=0
 
 # ===========================
-# UTILITY FUNCTIONS
+# EC2 INSTANCE CLEANUP (FROM STATE)
 # ===========================
 
-# Show usage information
-usage() {
-    cat <<EOF
-Usage: $SCRIPT_NAME [OPTIONS]
-
-PURPOSE:
-  Safely delete AWS resources created by automation scripts.
-
-OPTIONS:
-  -r REGION          AWS region to clean (default: AWS CLI default or eu-west-1)
-  -a                 Clean ALL regions (use with caution!)
-  -t TAG             Project tag to filter resources (default: AutomationLab)
-  -d                 Dry-run mode (show what would be deleted)
-  -f                 Force delete without confirmation
-  -y                 Skip confirmation prompt (use with caution!)
-  -h                 Show this help message
-
-EXAMPLES:
-  $SCRIPT_NAME -r us-east-1
-  $SCRIPT_NAME -a -t AutomationLab
-  DRY_RUN=true $SCRIPT_NAME
-  FORCE_DELETE=true PROJECT_TAG=MyProject $SCRIPT_NAME
-
-ENVIRONMENT VARIABLES:
-  REGION                AWS region to clean
-  DELETE_ALL_REGIONS    Clean all regions (true/false)
-  PROJECT_TAG           Project tag filter
-  DRY_RUN               Enable dry-run mode (true/false)
-  FORCE_DELETE          Force delete without prompts (true/false)
-  SKIP_CONFIRMATION     Skip confirmation (true/false)
-
-SAFETY FEATURES:
-  - Confirmation prompt before deletion
-  - Dry-run mode to preview actions
-  - Detailed logging of all operations
-  - Graceful handling of dependencies
-  - Summary report of deleted resources
-
-RESOURCES DELETED:
-  - EC2 instances (with Project tag)
-  - EC2 key pairs (matching pattern)
-  - Security groups (with Project tag)
-  - S3 buckets (matching pattern or tag)
-  - Local .pem files and sample files
-
-EOF
-    exit 0
-}
-
-# Parse command-line arguments
-parse_args() {
-    while getopts "r:t:adfyh" opt; do
-        case "$opt" in
-            r) REGION="$OPTARG" ;;
-            t) PROJECT_TAG="$OPTARG" ;;
-            a) DELETE_ALL_REGIONS=true ;;
-            d) DRY_RUN=true ;;
-            f) FORCE_DELETE=true ;;
-            y) SKIP_CONFIRMATION=true ;;
-            h) usage ;;
-            *) 
-                echo "Error: Invalid option. Use -h for help."
-                exit 1
-                ;;
-        esac
-    done
-}
-
-# Initialize logging
-init_logging() {
-    mkdir -p "$LOG_DIR"
-    touch "$LOG_FILE"
-    log "INFO" "Logging initialized: $LOG_FILE"
-    log "INFO" "Dry-run mode: $DRY_RUN"
-    log "INFO" "Force delete: $FORCE_DELETE"
-}
-
-# Unified logging function
-log() {
-    local level="$1"
-    shift
-    local message="$*"
-    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    echo "[$timestamp] [$level] $message" >> "$LOG_FILE"
-}
-
-# Print section header
-print_header() {
-    local title="$1"
-    echo ""
-    echo "=========================================="
-    echo "$title"
-    echo "=========================================="
-    log "INFO" "=== $title ==="
-}
-
-# Print success message
-print_success() {
-    local message="$1"
-    echo "✓ $message"
-    log "SUCCESS" "$message"
-}
-
-# Print error message
-print_error() {
-    local message="$1"
-    echo "✗ ERROR: $message" >&2
-    log "ERROR" "$message"
-}
-
-# Print info message
-print_info() {
-    local message="$1"
-    echo "$message"
-    log "INFO" "$message"
-}
-
-# Print warning message
-print_warning() {
-    local message="$1"
-    echo "⚠ WARNING: $message"
-    log "WARN" "$message"
-}
-
-# Centralized AWS CLI wrapper
-aws_cmd() {
-    if [ "$DRY_RUN" = true ]; then
-        log "INFO" "[DRY RUN] aws $*"
-        echo "[DRY RUN] Would execute: aws $*"
+terminate_instances_from_state() {
+    log_info "Terminating EC2 instances from state file"
+    
+    # Get instances from state
+    local instances=$(get_ec2_instances)
+    
+    if [ -z "$instances" ]; then
+        log_info "  No EC2 instances in state"
         return 0
     fi
     
-    aws "$@" 2>> "$LOG_FILE"
-}
-
-# Validate AWS CLI is installed
-validate_aws_cli() {
-    if ! command -v aws &> /dev/null; then
-        print_error "AWS CLI is not installed. Please install it first."
-        exit 1
-    fi
-    print_success "AWS CLI is installed"
-}
-
-# Validate jq is installed (for S3 cleanup)
-validate_jq() {
-    if ! command -v jq &> /dev/null; then
-        print_warning "jq is not installed. S3 versioned object cleanup may be limited."
-        print_info "Install jq for complete S3 cleanup: https://stedolan.github.io/jq/"
-        return 1
-    fi
-    return 0
-}
-
-# Get list of regions to clean
-get_regions_list() {
-    if [ "$DELETE_ALL_REGIONS" = true ]; then
-        if [ "$DRY_RUN" = true ]; then
-            REGIONS="us-east-1 us-west-2 eu-west-1"
-            print_info "[DRY RUN] Would clean all regions"
-        else
-            REGIONS=$(aws ec2 describe-regions --query 'Regions[].RegionName' --output text 2>> "$LOG_FILE" || echo "")
-            if [ -z "$REGIONS" ]; then
-                print_error "Failed to retrieve regions list"
-                exit 1
-            fi
-        fi
-        log "INFO" "Will clean all regions: $REGIONS"
-    else
-        REGIONS="$REGION"
-        log "INFO" "Will clean region: $REGIONS"
-    fi
-}
-
-# Verify AWS credentials
-verify_credentials() {
-    log "INFO" "Verifying AWS credentials"
-    
-    if [ "$DRY_RUN" = true ]; then
-        print_info "[DRY RUN] Would verify AWS credentials"
-        return 0
-    fi
-    
-    if ! aws sts get-caller-identity >> "$LOG_FILE" 2>&1; then
-        print_error "AWS credentials are not configured properly"
-        exit 1
-    fi
-    
-    local account_id=$(aws sts get-caller-identity --query 'Account' --output text 2>/dev/null)
-    print_success "AWS credentials verified (Account: $account_id)"
-}
-
-# Confirm cleanup
-confirm_cleanup() {
-    if [ "$SKIP_CONFIRMATION" = true ]; then
-        log "INFO" "Skipping confirmation (SKIP_CONFIRMATION=true)"
-        print_warning "Skipping confirmation prompt (auto-confirmed)"
-        return 0
-    fi
-    
-    print_header "⚠️  RESOURCE DELETION WARNING"
-    
-    cat <<EOF
-
-This script will DELETE the following resources:
-
-SCOPE:
-  Region(s):    ${DELETE_ALL_REGIONS:+ALL REGIONS}${DELETE_ALL_REGIONS:-$REGION}
-  Project Tag:  $PROJECT_TAG
-
-RESOURCES TO BE DELETED:
-  ✗ EC2 instances (tagged with Project=$PROJECT_TAG)
-  ✗ EC2 key pairs (pattern: devops-keypair*)
-  ✗ Security groups (tagged with Project=$PROJECT_TAG)
-  ✗ S3 buckets (pattern: devops-automation-lab* OR tagged)
-  ✗ All S3 bucket contents (including versions)
-  ✗ Local files (*.pem, welcome*.txt)
-
-⚠️  THIS ACTION CANNOT BE UNDONE! ⚠️
-
-EOF
-    
-    if [ "$DRY_RUN" = true ]; then
-        echo "🔍 DRY-RUN MODE: No resources will be deleted"
-        echo ""
-        return 0
-    fi
-    
-    if [ "$FORCE_DELETE" = true ]; then
-        echo "⚡ FORCE MODE: Deletion will proceed automatically in 5 seconds..."
-        echo "   Press Ctrl+C to cancel"
-        sleep 5
-        log "INFO" "Force delete mode - proceeding automatically"
-        return 0
-    fi
-    
-    echo -n "Type 'DELETE' (in capitals) to confirm: "
-    read -r CONFIRM
-    
-    if [ "$CONFIRM" != "DELETE" ]; then
-        log "INFO" "Cleanup cancelled by user"
-        echo ""
-        echo "Cleanup cancelled. No resources were deleted."
-        exit 0
-    fi
-    
-    log "INFO" "User confirmed cleanup with DELETE"
-    print_info "Starting cleanup process..."
-}
-
-# Terminate EC2 instances
-terminate_instances() {
-    local region="$1"
-    
-    log "INFO" "Checking for EC2 instances in $region"
-    
-    local instance_ids
-    if [ "$DRY_RUN" = true ]; then
-        instance_ids="i-dry-run-12345 i-dry-run-67890"
-    else
-        instance_ids=$(aws ec2 describe-instances \
-            --region "$region" \
-            --filters "Name=tag:Project,Values=$PROJECT_TAG" \
-                      "Name=instance-state-name,Values=running,stopped,stopping,pending" \
-            --query 'Reservations[*].Instances[*].InstanceId' \
-            --output text 2>> "$LOG_FILE" | tr '\n' ' ' | xargs || echo "")
-    fi
-    
-    if [ -z "$instance_ids" ] || [ "$instance_ids" = " " ]; then
-        print_info "  No EC2 instances found in $region"
-        return 0
-    fi
-    
-    print_info "  Found instances: $instance_ids"
-    
-    if aws_cmd ec2 terminate-instances \
-        --instance-ids $instance_ids \
-        --region "$region" >> "$LOG_FILE" 2>&1; then
+    local count=0
+    while IFS= read -r instance_json; do
+        [ -z "$instance_json" ] && continue
         
-        if [ "$DRY_RUN" = false ]; then
-            print_info "  ⏳ Waiting for instances to terminate..."
+        local instance_id=$(echo "$instance_json" | jq -r '.instance_id')
+        local instance_name=$(echo "$instance_json" | jq -r '.name // "Unknown"')
+        local instance_region=$(echo "$instance_json" | jq -r '.region // "eu-west-1"')
+        local instance_state=$(echo "$instance_json" | jq -r '.state // "unknown"')
+        
+        log_info "  Found: $instance_id ($instance_name) in $instance_region [state: $instance_state]"
+        
+        if dry_run_guard "Would terminate instance: $instance_id in $instance_region"; then
+            ((count++))
+            continue
+        fi
+        
+        # Check if instance still exists
+        if ! aws ec2 describe-instances \
+            --instance-ids "$instance_id" \
+            --region "$instance_region" \
+            >> "$LOG_FILE" 2>&1; then
+            log_warn "    Instance $instance_id not found in AWS (already deleted?)"
+            remove_ec2_instance "$instance_id"
+            continue
+        fi
+        
+        # Terminate the instance
+        if aws ec2 terminate-instances \
+            --instance-ids "$instance_id" \
+            --region "$instance_region" \
+            >> "$LOG_FILE" 2>&1; then
+            
+            log_success "  Terminated: $instance_id"
+            
+            # Wait for termination (with timeout)
+            log_info "    ⏳ Waiting for termination..."
             aws ec2 wait instance-terminated \
-                --instance-ids $instance_ids \
-                --region "$region" 2>> "$LOG_FILE" || true
+                --instance-ids "$instance_id" \
+                --region "$instance_region" \
+                2>> "$LOG_FILE" || log_warn "    Timeout waiting for termination"
+            
+            # Remove from state
+            remove_ec2_instance "$instance_id"
+            ((count++))
+        else
+            log_error "  Failed to terminate: $instance_id"
         fi
-        
-        local count=$(echo "$instance_ids" | wc -w)
-        DELETED_INSTANCES=$((DELETED_INSTANCES + count))
-        print_success "  Terminated $count instance(s) in $region"
-    else
-        print_error "  Failed to terminate instances in $region"
+    done <<< "$instances"
+    
+    DELETED_INSTANCES=$count
+    
+    if [ $count -gt 0 ]; then
+        log_success "Terminated $count instance(s)"
     fi
 }
 
-# Delete key pairs
-delete_key_pairs() {
-    local region="$1"
+# ===========================
+# KEY PAIR CLEANUP (FROM STATE)
+# ===========================
+
+delete_local_pem_file() {
+    local key_name="$1"
+    local pem_file="${key_name}.pem"
     
-    log "INFO" "Checking for key pairs in $region"
-    
-    local key_pairs
-    if [ "$DRY_RUN" = true ]; then
-        key_pairs="devops-keypair-dry-run-1 devops-keypair-dry-run-2"
-    else
-        key_pairs=$(aws ec2 describe-key-pairs \
-            --region "$region" \
-            --query 'KeyPairs[?starts_with(KeyName, `devops-keypair`)].KeyName' \
-            --output text 2>> "$LOG_FILE" || echo "")
+    if [ ! -f "$pem_file" ]; then
+        return 0
     fi
+    
+    if dry_run_guard "Would delete local file: $pem_file"; then
+        return 0
+    fi
+    
+    rm -f "$pem_file"
+    ((DELETED_LOCAL_FILES++))
+    log_success "    Removed local file: $pem_file"
+}
+
+delete_key_pairs_from_state() {
+    log_info "Deleting key pairs from state file"
+    
+    # Get key pairs from state
+    local key_pairs=$(get_key_pairs)
     
     if [ -z "$key_pairs" ]; then
-        print_info "  No key pairs found in $region"
+        log_info "  No key pairs in state"
         return 0
     fi
     
-    local deleted_count=0
-    for key in $key_pairs; do
-        if aws_cmd ec2 delete-key-pair \
-            --key-name "$key" \
-            --region "$region"; then
-            print_success "  Deleted key pair: $key"
-            ((deleted_count++))
-            
-            # Remove local .pem file if exists
-            local pem_file="${key}.pem"
-            if [ -f "$pem_file" ]; then
-                if [ "$DRY_RUN" = false ]; then
-                    rm -f "$pem_file"
-                fi
-                print_success "  Removed local file: $pem_file"
-                ((DELETED_LOCAL_FILES++))
-            fi
-        else
-            print_warning "  Could not delete key pair: $key"
+    local count=0
+    while IFS= read -r key_json; do
+        [ -z "$key_json" ] && continue
+        
+        local key_name=$(echo "$key_json" | jq -r '.key_name')
+        local key_region=$(echo "$key_json" | jq -r '.region // "eu-west-1"')
+        
+        log_info "  Found: $key_name in $key_region"
+        
+        if dry_run_guard "Would delete key pair: $key_name in $key_region"; then
+            ((count++))
+            delete_local_pem_file "$key_name"
+            continue
         fi
-    done
+        
+        # Delete from AWS
+        if aws ec2 delete-key-pair \
+            --key-name "$key_name" \
+            --region "$key_region" \
+            2>> "$LOG_FILE"; then
+            
+            log_success "  Deleted: $key_name"
+            
+            # Remove from state
+            remove_key_pair "$key_name"
+            
+            # Remove local .pem file
+            delete_local_pem_file "$key_name"
+            
+            ((count++))
+        else
+            log_warn "  Could not delete key pair: $key_name (may not exist)"
+            # Still remove from state since it's gone
+            remove_key_pair "$key_name"
+        fi
+    done <<< "$key_pairs"
     
-    DELETED_KEY_PAIRS=$((DELETED_KEY_PAIRS + deleted_count))
+    DELETED_KEY_PAIRS=$count
+    
+    if [ $count -gt 0 ]; then
+        log_success "Deleted $count key pair(s)"
+    fi
 }
 
-# Delete security groups
-delete_security_groups() {
-    local region="$1"
+# ===========================
+# SECURITY GROUP CLEANUP (FROM STATE)
+# ===========================
+
+delete_security_groups_from_state() {
+    log_info "Deleting security groups from state file"
     
-    log "INFO" "Checking for security groups in $region"
-    
-    # Wait for instances to fully terminate
-    if [ "$DRY_RUN" = false ]; then
+    # Wait a bit for instances to fully terminate
+    if [ "$DELETED_INSTANCES" -gt 0 ]; then
+        log_info "  Waiting 5 seconds for instances to release security groups..."
         sleep 5
     fi
     
-    local sg_ids
-    if [ "$DRY_RUN" = true ]; then
-        sg_ids="sg-dry-run-12345 sg-dry-run-67890"
-    else
-        sg_ids=$(aws ec2 describe-security-groups \
-            --region "$region" \
-            --filters "Name=tag:Project,Values=$PROJECT_TAG" \
-            --query 'SecurityGroups[*].[GroupId,GroupName]' \
-            --output text 2>> "$LOG_FILE" || echo "")
-    fi
+    # Get security groups from state
+    local security_groups=$(get_security_groups)
     
-    if [ -z "$sg_ids" ]; then
-        print_info "  No security groups found in $region"
+    if [ -z "$security_groups" ]; then
+        log_info "  No security groups in state"
         return 0
     fi
     
-    local deleted_count=0
-    echo "$sg_ids" | while read -r sg_id sg_name; do
-        if [ -z "$sg_id" ]; then
-            continue
-        fi
+    local count=0
+    while IFS= read -r sg_json; do
+        [ -z "$sg_json" ] && continue
         
-        # Skip default security group
+        local sg_id=$(echo "$sg_json" | jq -r '.group_id')
+        local sg_name=$(echo "$sg_json" | jq -r '.group_name // "Unknown"')
+        local sg_region=$(echo "$sg_json" | jq -r '.region // "eu-west-1"')
+        
+        # Skip default security groups
         if [ "$sg_name" = "default" ]; then
-            print_info "  Skipping default security group: $sg_id"
+            log_info "  Skipping default security group: $sg_id"
+            remove_security_group "$sg_id"
             continue
         fi
         
-        if aws_cmd ec2 delete-security-group \
-            --group-id "$sg_id" \
-            --region "$region"; then
-            print_success "  Deleted security group: $sg_id ($sg_name)"
-            ((deleted_count++))
-        else
-            print_warning "  Could not delete security group: $sg_id (may have dependencies)"
+        log_info "  Found: $sg_id ($sg_name) in $sg_region"
+        
+        if dry_run_guard "Would delete security group: $sg_id in $sg_region"; then
+            ((count++))
+            continue
         fi
-    done 2>/dev/null || true
+        
+        # Delete from AWS
+        if aws ec2 delete-security-group \
+            --group-id "$sg_id" \
+            --region "$sg_region" \
+            2>> "$LOG_FILE"; then
+            
+            log_success "  Deleted: $sg_id ($sg_name)"
+            
+            # Remove from state
+            remove_security_group "$sg_id"
+            
+            ((count++))
+        else
+            log_warn "  Could not delete: $sg_id (may have dependencies or not exist)"
+            # Try to check if it exists
+            if ! aws ec2 describe-security-groups \
+                --group-ids "$sg_id" \
+                --region "$sg_region" \
+                >> "$LOG_FILE" 2>&1; then
+                log_info "    Security group doesn't exist, removing from state"
+                remove_security_group "$sg_id"
+            fi
+        fi
+    done <<< "$security_groups"
     
-    # Update counter (note: subshell issue, so we count again)
-    if [ "$DRY_RUN" = false ]; then
-        deleted_count=$(echo "$sg_ids" | grep -c "sg-" || echo 0)
-    else
-        deleted_count=2
+    DELETED_SECURITY_GROUPS=$count
+    
+    if [ $count -gt 0 ]; then
+        log_success "Deleted $count security group(s)"
     fi
-    DELETED_SECURITY_GROUPS=$((DELETED_SECURITY_GROUPS + deleted_count))
 }
 
-# Delete S3 buckets completely
-empty_bucket() {
+# ===========================
+# S3 BUCKET CLEANUP (FROM STATE)
+# ===========================
+
+get_bucket_region() {
     local bucket="$1"
-    local bucket_region="$2"
-    local jq_available="$3"
-
-    log "INFO" "Emptying bucket: $bucket (region: $bucket_region)"
-
-    if [ "$DRY_RUN" = true ]; then
-        print_info "    [DRY RUN] Would empty bucket: $bucket"
+    
+    if dry_run_guard "Would get bucket region for $bucket" >&2; then
+        echo "us-east-1"
         return 0
     fi
+    
+    local region=$(aws s3api get-bucket-location \
+        --bucket "$bucket" \
+        --query 'LocationConstraint' \
+        --output text 2>> "$LOG_FILE" || echo "us-east-1")
+    
+    # AWS returns "None" for us-east-1
+    [ "$region" = "None" ] || [ -z "$region" ] && region="us-east-1"
+    
+    echo "$region"
+}
 
-    # Best-effort: remove bucket policy, public access block, ownership controls
-    aws s3api delete-bucket-policy --bucket "$bucket" --region "$bucket_region" >> "$LOG_FILE" 2>&1 || true
-    aws s3api delete-public-access-block --bucket "$bucket" --region "$bucket_region" >> "$LOG_FILE" 2>&1 || true
-    aws s3api delete-bucket-ownership-controls --bucket "$bucket" --region "$bucket_region" >> "$LOG_FILE" 2>&1 || true
-
-    # Suspend versioning to help further operations (will not remove versions)
-    aws s3api put-bucket-versioning --bucket "$bucket" --versioning-configuration Status=Suspended --region "$bucket_region" >> "$LOG_FILE" 2>&1 || true
-
-    # Abort multipart uploads (if any)
-    if [ "$jq_available" = true ]; then
-        aws s3api list-multipart-uploads --bucket "$bucket" --output json --region "$bucket_region" 2>> "$LOG_FILE" | \
-        jq -r '.Uploads[]? | "\(.Key)\t\(.UploadId)"' 2>> "$LOG_FILE" | \
-        while IFS=$'\t' read -r key uploadid; do
-            [ -n "$key" ] && aws s3api abort-multipart-upload --bucket "$bucket" --key "$key" --upload-id "$uploadid" --region "$bucket_region" >> "$LOG_FILE" 2>&1 || true
-        done
-    else
-        # Fallback: try aws s3 rm (may not clear multipart uploads)
-        print_warning "    jq not available: aborting multipart uploads may be incomplete"
+empty_and_delete_bucket() {
+    local bucket="$1"
+    local bucket_region="$2"
+    
+    if dry_run_guard "Would empty and delete bucket: $bucket"; then
+        return 0
     fi
-
-    # If jq is available try thorough versioned-object deletion
-    if [ "$jq_available" = true ]; then
-        print_info "    Removing versioned objects and delete markers (using jq)..."
+    
+    log_info "    Emptying bucket contents..."
+    
+    # Remove bucket policy and configurations
+    aws s3api delete-bucket-policy --bucket "$bucket" --region "$bucket_region" >> "$LOG_FILE" 2>&1 || true
+    aws s3api put-bucket-versioning --bucket "$bucket" --versioning-configuration Status=Suspended --region "$bucket_region" >> "$LOG_FILE" 2>&1 || true
+    
+    # Empty bucket contents
+    aws s3 rm "s3://$bucket" --recursive --region "$bucket_region" >> "$LOG_FILE" 2>&1 || true
+    
+    # Delete versioned objects if jq is available
+    if command -v jq &> /dev/null; then
+        log_info "    Removing versioned objects..."
+        
         # Delete versions
         aws s3api list-object-versions --bucket "$bucket" --output json --region "$bucket_region" 2>> "$LOG_FILE" | \
         jq -r '.Versions[]? | "\(.Key)\t\(.VersionId)"' 2>> "$LOG_FILE" | \
         while IFS=$'\t' read -r key version; do
             [ -n "$key" ] && aws s3api delete-object --bucket "$bucket" --key "$key" --version-id "$version" --region "$bucket_region" >> "$LOG_FILE" 2>&1 || true
         done
-
+        
         # Delete delete markers
         aws s3api list-object-versions --bucket "$bucket" --output json --region "$bucket_region" 2>> "$LOG_FILE" | \
         jq -r '.DeleteMarkers[]? | "\(.Key)\t\(.VersionId)"' 2>> "$LOG_FILE" | \
         while IFS=$'\t' read -r key version; do
             [ -n "$key" ] && aws s3api delete-object --bucket "$bucket" --key "$key" --version-id "$version" --region "$bucket_region" >> "$LOG_FILE" 2>&1 || true
         done
-    else
-        print_warning "    jq not available: falling back to aws s3 rm --recursive (may not remove versions)"
-        aws s3 rm "s3://$bucket" --recursive --region "$bucket_region" >> "$LOG_FILE" 2>&1 || true
     fi
-
-    # Final best-effort: force empty via aws s3 rb
-    aws s3 rb "s3://$bucket" --force --region "$bucket_region" >> "$LOG_FILE" 2>&1 || true
+    
+    # Delete bucket
+    if aws s3api delete-bucket --bucket "$bucket" --region "$bucket_region" 2>> "$LOG_FILE"; then
+        log_success "  Deleted bucket: $bucket"
+        return 0
+    else
+        log_warn "  Could not delete bucket: $bucket"
+        return 1
+    fi
 }
 
-delete_s3_buckets() {
-    log "INFO" "Checking for S3 buckets"
-
-    local buckets
-    if [ "$DRY_RUN" = true ]; then
-        buckets="devops-automation-lab-dry-run-1 devops-automation-lab-dry-run-2"
-    else
-        buckets=$(aws s3api list-buckets \
-            --query 'Buckets[?starts_with(Name, `devops-automation-lab`)].Name' \
-            --output text 2>> "$LOG_FILE" || echo "")
-    fi
-
+delete_s3_buckets_from_state() {
+    log_info "Deleting S3 buckets from state file"
+    
+    # Get buckets from state
+    local buckets=$(get_s3_buckets)
+    
     if [ -z "$buckets" ]; then
-        print_info "  No S3 buckets found"
+        log_info "  No S3 buckets in state"
         return 0
     fi
-
-    local jq_available=true
-    validate_jq || jq_available=false
-
-    for bucket in $buckets; do
-        # Get bucket region
-        local bucket_region
-        if [ "$DRY_RUN" = true ]; then
-            bucket_region="us-east-1"
-        else
-            bucket_region=$(aws s3api get-bucket-location \
-                --bucket "$bucket" \
-                --query 'LocationConstraint' \
-                --output text 2>> "$LOG_FILE" || echo "us-east-1")
-
-            if [ "$bucket_region" = "None" ] || [ -z "$bucket_region" ]; then
-                bucket_region="us-east-1"
+    
+    local count=0
+    while IFS= read -r bucket_json; do
+        [ -z "$bucket_json" ] && continue
+        
+        local bucket_name=$(echo "$bucket_json" | jq -r '.bucket_name')
+        local bucket_region=$(echo "$bucket_json" | jq -r '.region // "us-east-1"')
+        
+        log_info "  Found: $bucket_name in $bucket_region"
+        
+        # Verify region from AWS (state might be outdated)
+        if [ "$DRY_RUN" != "true" ]; then
+            local actual_region=$(get_bucket_region "$bucket_name")
+            if [ -n "$actual_region" ] && [ "$actual_region" != "$bucket_region" ]; then
+                log_info "    Updating region: $bucket_region -> $actual_region"
+                bucket_region="$actual_region"
             fi
         fi
+        
+        if empty_and_delete_bucket "$bucket_name" "$bucket_region"; then
+            # Remove from state
+            remove_s3_bucket "$bucket_name"
+            ((count++))
+        else
+            # Check if bucket exists
+            if ! aws s3api head-bucket --bucket "$bucket_name" --region "$bucket_region" 2>> "$LOG_FILE"; then
+                log_info "    Bucket doesn't exist, removing from state"
+                remove_s3_bucket "$bucket_name"
+            fi
+        fi
+    done <<< "$buckets"
+    
+    DELETED_BUCKETS=$count
+    
+    if [ $count -gt 0 ]; then
+        log_success "Deleted $count bucket(s)"
+    fi
+}
 
-        # Check region filter
-        if [ "$DELETE_ALL_REGIONS" = false ] && [ "$REGION" != "$bucket_region" ]; then
-            print_info "  Skipping bucket $bucket in $bucket_region (not in selected region)"
+# ===========================
+# LOCAL FILE CLEANUP
+# ===========================
+
+cleanup_local_files() {
+    log_info "Cleaning up local files"
+    
+    local files_deleted=0
+    
+    # Clean welcome files
+    for file in welcome*.txt; do
+        [ -f "$file" ] || continue
+        
+        if dry_run_guard "Would delete: $file"; then
+            ((files_deleted++))
             continue
         fi
-
-        print_info "  Processing bucket: $bucket (region: $bucket_region)"
-
-        # Attempt thorough emptying
-        empty_bucket "$bucket" "$bucket_region" "$jq_available"
-
-        # Try to delete the bucket
-        if aws_cmd s3api delete-bucket \
-            --bucket "$bucket" \
-            --region "$bucket_region"; then
-            print_success "  Deleted bucket: $bucket"
-            ((DELETED_BUCKETS++))
-        else
-            if [ "$DRY_RUN" = false ]; then
-                print_warning "  Could not delete bucket: $bucket (attempting final force remove)"
-                # One more attempt to remove contents and delete
-                aws s3 rb "s3://$bucket" --force --region "$bucket_region" >> "$LOG_FILE" 2>&1 || true
-                if aws_cmd s3api delete-bucket --bucket "$bucket" --region "$bucket_region"; then
-                    print_success "  Deleted bucket (force): $bucket"
-                    ((DELETED_BUCKETS++))
-                else
-                    print_error "  Failed to delete bucket: $bucket"
-                    print_warning "  Common reasons: object lock/retention, bucket ownership or missing permissions."
-                    print_info "  To investigate manually: aws s3api list-object-versions --bucket $bucket --region $bucket_region"
-                fi
-            fi
-        fi
+        
+        rm -f "$file"
+        log_success "  Removed: $file"
+        ((files_deleted++))
     done
+    
+    # Clean .pem files not already deleted
+    for file in *.pem; do
+        [ -f "$file" ] || continue
+        
+        if dry_run_guard "Would delete: $file"; then
+            ((files_deleted++))
+            continue
+        fi
+        
+        rm -f "$file"
+        log_success "  Removed: $file"
+        ((files_deleted++))
+    done
+    
+    DELETED_LOCAL_FILES=$((DELETED_LOCAL_FILES + files_deleted))
+    
+    if [ $files_deleted -eq 0 ]; then
+        log_info "  No additional local files to clean"
+    else
+        log_success "  Cleaned up $files_deleted additional file(s)"
+    fi
 }
 
-# Clean up local files
-cleanup_local_files() {
-    log "INFO" "Cleaning up local files"
+# ===========================
+# CONFIRMATION & SUMMARY
+# ===========================
+
+show_cleanup_preview() {
+    print_header "⚠️  RESOURCE DELETION PREVIEW"
     
-    local files_to_delete=()
+    # Count resources from state
+    local ec2_count=$(echo "$STATE_JSON" | jq '.ec2_instances | length' 2>/dev/null || echo 0)
+    local key_count=$(echo "$STATE_JSON" | jq '.key_pairs | length' 2>/dev/null || echo 0)
+    local sg_count=$(echo "$STATE_JSON" | jq '.security_groups | length' 2>/dev/null || echo 0)
+    local s3_count=$(echo "$STATE_JSON" | jq '.s3_buckets | length' 2>/dev/null || echo 0)
     
-    # Find welcome files
-    for file in welcome*.txt; do
-        [ -f "$file" ] && files_to_delete+=("$file")
-    done
+    cat <<EOF
+
+This script will DELETE resources tracked in the state file:
+
+RESOURCES TO BE DELETED:
+  ✗ EC2 Instances:     $ec2_count
+  ✗ Key Pairs:         $key_count
+  ✗ Security Groups:   $sg_count
+  ✗ S3 Buckets:        $s3_count
+  ✗ Local files:       (*.pem, welcome*.txt)
+
+State file location:
+  s3://$STATE_BUCKET/$STATE_FILE
+
+⚠️  THIS ACTION CANNOT BE UNDONE! ⚠️
+
+EOF
     
-    # Find .pem files
-    for file in devops-keypair-*.pem *.pem; do
-        [ -f "$file" ] && files_to_delete+=("$file")
-    done
-    
-    if [ ${#files_to_delete[@]} -eq 0 ]; then
-        print_info "  No local files to clean"
-        return 0
+    if [ "$DRY_RUN" = "true" ]; then
+        echo "🔍 DRY-RUN MODE: No resources will be deleted"
+        echo ""
     fi
     
-    for file in "${files_to_delete[@]}"; do
-        if [ "$DRY_RUN" = false ]; then
-            rm -f "$file"
-        fi
-        print_success "  Removed: $file"
-        ((DELETED_LOCAL_FILES++))
-    done
+    # Show detailed list
+    if [ $ec2_count -gt 0 ]; then
+        echo "EC2 Instances:"
+        get_ec2_instances | while IFS= read -r instance; do
+            [ -z "$instance" ] && continue
+            local id=$(echo "$instance" | jq -r '.instance_id')
+            local name=$(echo "$instance" | jq -r '.name // "Unknown"')
+            local region=$(echo "$instance" | jq -r '.region')
+            echo "  - $id ($name) in $region"
+        done
+        echo ""
+    fi
     
-    print_success "  Cleaned up ${#files_to_delete[@]} local file(s)"
+    if [ $key_count -gt 0 ]; then
+        echo "Key Pairs:"
+        get_key_pairs | while IFS= read -r key; do
+            [ -z "$key" ] && continue
+            local name=$(echo "$key" | jq -r '.key_name')
+            local region=$(echo "$key" | jq -r '.region')
+            echo "  - $name in $region"
+        done
+        echo ""
+    fi
+    
+    if [ $sg_count -gt 0 ]; then
+        echo "Security Groups:"
+        get_security_groups | while IFS= read -r sg; do
+            [ -z "$sg" ] && continue
+            local id=$(echo "$sg" | jq -r '.group_id')
+            local name=$(echo "$sg" | jq -r '.group_name // "Unknown"')
+            local region=$(echo "$sg" | jq -r '.region')
+            echo "  - $id ($name) in $region"
+        done
+        echo ""
+    fi
+    
+    if [ $s3_count -gt 0 ]; then
+        echo "S3 Buckets:"
+        get_s3_buckets | while IFS= read -r bucket; do
+            [ -z "$bucket" ] && continue
+            local name=$(echo "$bucket" | jq -r '.bucket_name')
+            local region=$(echo "$bucket" | jq -r '.region')
+            echo "  - $name in $region"
+        done
+        echo ""
+    fi
 }
 
-# Display summary
 display_summary() {
     print_header "Cleanup Summary"
     
-    local summary_text
-    summary_text=$(cat <<EOF
-Cleanup completed on: $(date)
-Region(s): ${DELETE_ALL_REGIONS:+ALL REGIONS}${DELETE_ALL_REGIONS:-$REGION}
-Project Tag: $PROJECT_TAG
-Dry-Run Mode: $DRY_RUN
+    local total=$((DELETED_INSTANCES + DELETED_KEY_PAIRS + DELETED_SECURITY_GROUPS + DELETED_BUCKETS + DELETED_LOCAL_FILES))
+    
+    cat <<EOF
+Completed: $(date)
+Dry-Run: $DRY_RUN
 
 Resources Deleted:
   EC2 Instances:      $DELETED_INSTANCES
@@ -608,123 +509,130 @@ Resources Deleted:
   Security Groups:    $DELETED_SECURITY_GROUPS
   S3 Buckets:         $DELETED_BUCKETS
   Local Files:        $DELETED_LOCAL_FILES
+  
+  Total:              $total
 
-Total Resources:      $((DELETED_INSTANCES + DELETED_KEY_PAIRS + DELETED_SECURITY_GROUPS + DELETED_BUCKETS + DELETED_LOCAL_FILES))
-
-Log File: $LOG_FILE
+State file: s3://$STATE_BUCKET/$STATE_FILE
+Log file: $LOG_FILE
 ==========================================
 EOF
-)
     
-    echo "$summary_text"
-    echo "$summary_text" >> "$LOG_FILE"
-    
-    # Save summary to file
-    if [ "$DRY_RUN" = false ]; then
-        echo "$summary_text" > "$OUTPUT_FILE"
-        print_info "Summary saved to: $OUTPUT_FILE"
+    if [ "$DRY_RUN" = "true" ]; then
+        echo ""
+        log_info "This was a dry-run. No resources were actually deleted."
+        echo "Run without --dry-run to perform actual cleanup."
     fi
 }
 
-# Cleanup on error
-cleanup_on_error() {
-    local line="${1:-unknown}"
-    local cmd="${2:-unknown}"
-    
-    log "ERROR" "Script failed at line $line: $cmd"
-    echo "" >&2
-    echo "✗ Script failed at line $line" >&2
-    echo "  Command: $cmd" >&2
-    echo "" >&2
-    echo "Check log file for details: $LOG_FILE" >&2
-    
-    # Display partial summary
-    if [ "$DELETED_INSTANCES" -gt 0 ] || [ "$DELETED_KEY_PAIRS" -gt 0 ] || \
-       [ "$DELETED_SECURITY_GROUPS" -gt 0 ] || [ "$DELETED_BUCKETS" -gt 0 ]; then
-        echo "" >&2
-        echo "Partial cleanup summary:" >&2
-        echo "  Instances: $DELETED_INSTANCES, Key Pairs: $DELETED_KEY_PAIRS" >&2
-        echo "  Security Groups: $DELETED_SECURITY_GROUPS, Buckets: $DELETED_BUCKETS" >&2
-    fi
-    
-    exit 1
+# ===========================
+# ARGUMENT PARSING
+# ===========================
+
+usage() {
+    cat <<EOF
+Usage: $SCRIPT_NAME [OPTIONS]
+
+Clean up AWS resources tracked in the state file.
+
+OPTIONS:
+  -d, --dry-run              Preview mode - no actual changes
+  -y, --yes                  Skip confirmation prompt
+  -h, --help                 Show this help message
+
+ENVIRONMENT VARIABLES:
+  DRY_RUN                    Enable dry-run mode (true/false)
+  SKIP_CONFIRMATION          Skip confirmation (true/false)
+  STATE_BUCKET               S3 bucket for state file
+  STATE_FILE                 State file name
+
+EXAMPLES:
+  $SCRIPT_NAME --dry-run     # Preview what would be deleted
+  $SCRIPT_NAME --yes         # Delete without confirmation
+  
+EOF
+    exit 0
+}
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dry-run|-d)
+                export DRY_RUN=true
+                shift
+                ;;
+            --yes|-y)
+                export SKIP_CONFIRMATION=true
+                shift
+                ;;
+            --help|-h)
+                usage
+                ;;
+            *)
+                log_error "Unknown option: $1"
+                echo "Use --help for usage information"
+                exit 1
+                ;;
+        esac
+    done
 }
 
 # ===========================
 # MAIN EXECUTION
 # ===========================
 main() {
-    # Parse command-line arguments
+    # Parse arguments
     parse_args "$@"
     
-    # Set up error trap
-    trap 'cleanup_on_error $LINENO "$BASH_COMMAND"' ERR
-    
     # Initialize
-    init_logging
-    print_header "AWS Resource Cleanup Script"
+    print_header "AWS Resource Cleanup Script (State-Based)"
+    
+    # Load existing state
+    load_state
     
     # Validate prerequisites
-    validate_aws_cli
-    validate_jq
-    get_regions_list
-    verify_credentials
+    require_command "aws" "Install from: https://aws.amazon.com/cli/"
+    require_command "jq" "Install from: https://stedolan.github.io/jq/"
     
-    # Display configuration
-    print_info "Configuration:"
-    print_info "  Region(s):         ${DELETE_ALL_REGIONS:+ALL REGIONS}${DELETE_ALL_REGIONS:-$REGION}"
-    print_info "  Project Tag:       $PROJECT_TAG"
-    print_info "  Dry-Run:           $DRY_RUN"
-    print_info "  Force Delete:      $FORCE_DELETE"
-    echo ""
+    # Verify credentials
+    verify_aws_credentials "$REGION"
     
-    # Confirm cleanup
-    confirm_cleanup
+    # Show what will be deleted
+    show_cleanup_preview
+    
+    # Confirm
+    if [ "$SKIP_CONFIRMATION" != "true" ]; then
+        confirm_action "Do you want to proceed with deletion?" "DELETE"
+    fi
     
     echo ""
     
-    # Clean resources in each region
-    for current_region in $REGIONS; do
-        print_header "Cleaning region: $current_region"
-        
-        print_info "Step 1: Terminating EC2 instances..."
-        terminate_instances "$current_region"
-        
-        print_info "Step 2: Deleting key pairs..."
-        delete_key_pairs "$current_region"
-        
-        print_info "Step 3: Deleting security groups..."
-        delete_security_groups "$current_region"
-        
-        echo ""
-    done
+    # Execute cleanup
+    print_header "Starting Cleanup"
     
-    # S3 buckets (global but region-aware)
-    print_header "Cleaning S3 Buckets"
-    print_info "Step 4: Deleting S3 buckets..."
-    delete_s3_buckets
-    
+    log_info "[1/5] Terminating EC2 instances..."
+    terminate_instances_from_state
     echo ""
     
-    # Local cleanup
-    print_header "Local Cleanup"
-    print_info "Step 5: Cleaning up local files..."
+    log_info "[2/5] Deleting key pairs..."
+    delete_key_pairs_from_state
+    echo ""
+    
+    log_info "[3/5] Deleting security groups..."
+    delete_security_groups_from_state
+    echo ""
+    
+    log_info "[4/5] Deleting S3 buckets..."
+    delete_s3_buckets_from_state
+    echo ""
+    
+    log_info "[5/5] Cleaning local files..."
     cleanup_local_files
-    
     echo ""
     
     # Display summary
     display_summary
     
-    log "SUCCESS" "Cleanup completed successfully"
-    
-    if [ "$DRY_RUN" = true ]; then
-        echo ""
-        print_info "This was a dry-run. No resources were actually deleted."
-        print_info "Run without -d flag to perform actual deletion."
-    else
-        print_success "All cleanup operations completed!"
-    fi
+    log_success "Cleanup completed successfully!"
 }
 
 # Run main function
