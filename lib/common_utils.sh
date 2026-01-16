@@ -270,7 +270,15 @@ create_temp_file() {
     local prefix="${1:-temp}"
     local suffix="${2:-.txt}"
     
-    local temp_file=$(mktemp "${TMPDIR:-/tmp}/${prefix}.XXXXXX${suffix}")
+    # Create temp file without the problematic pattern
+    # macOS mktemp doesn't like the .XXXXXX pattern, so we use _XXXXXX
+    local temp_file=$(mktemp "${TMPDIR:-/tmp}/${prefix}_XXXXXX")
+    
+    # If suffix is needed, rename the file
+    if [ "$suffix" != "" ]; then
+        mv "$temp_file" "${temp_file}${suffix}"
+        temp_file="${temp_file}${suffix}"
+    fi
     
     # Register cleanup
     trap "rm -f '$temp_file' 2>/dev/null || true" EXIT

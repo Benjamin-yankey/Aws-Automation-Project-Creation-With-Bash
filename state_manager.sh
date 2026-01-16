@@ -93,7 +93,10 @@ bucket_exists() {
     local bucket="$1"
     local region="$2"
     
-    if dry_run_guard "Would check if bucket $bucket exists" >&2; then
+    # Don't block bucket checks in dry-run mode for state bucket
+    # We need to check if state bucket exists even in dry-run
+    if [ "${DRY_RUN:-false}" = "true" ] && [ "$bucket" != "$STATE_BUCKET" ]; then
+        log_info "[DRY-RUN] Would check if bucket $bucket exists" >&2
         return 1
     fi
     
@@ -106,9 +109,8 @@ state_file_exists() {
     local key="$2"
     local region="$3"
     
-    if dry_run_guard "Would check if state file exists" >&2; then
-        return 1
-    fi
+    # Don't block state file checks in dry-run mode
+    # We need to check if state file exists even in dry-run
     
     aws s3api head-object --bucket "$bucket" --key "$key" --region "$region" &>/dev/null
 }
@@ -144,8 +146,17 @@ load_state() {
         STATE_JSON='{}'
     fi
     
-    # Ensure state has proper structure
+    # Store original state to detect if migration happened
+    local original_state="$STATE_JSON"
+    
+    # Ensure state has proper structure (this may migrate old format)
     init_state_structure
+    
+    # If state was migrated, save it back to S3
+    if [ "$STATE_JSON" != "$original_state" ] && [ "${DRY_RUN:-false}" != "true" ]; then
+        log_info "State format was migrated, saving updated state..."
+        save_state
+    fi
     
     log_success "State loaded from s3://$STATE_BUCKET/$STATE_FILE"
 }

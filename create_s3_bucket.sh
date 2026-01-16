@@ -9,7 +9,7 @@ LOG_DIR="./logs"
 export LOG_FILE="${LOG_DIR}/s3_creation_$(date +%Y%m%d_%H%M%S).log"
 
 # Source common utilities and state manager
-source "${SCRIPT_DIR}/common_utils.sh"
+source "${SCRIPT_DIR}/lib/common_utils.sh"
 source "${SCRIPT_DIR}/state_manager.sh"
 
 # Default configuration
@@ -25,13 +25,78 @@ UPLOAD_SAMPLE_FILE="${UPLOAD_SAMPLE_FILE:-true}"
 SAMPLE_FILE=""
 VERSIONING_STATUS=""
 ENCRYPTION_STATUS=""
+BUCKET_ALREADY_IN_STATE=false
+
+# ===========================
+# STATE VALIDATION
+# ===========================
+
+check_bucket_in_state() {
+    log_info "Checking if bucket exists in state file"
+    
+    local buckets=$(get_s3_buckets)
+    
+    if [ -z "$buckets" ]; then
+        log_info "  No buckets in state file"
+        BUCKET_ALREADY_IN_STATE=false
+        return 0  # Changed from return 1 to return 0
+    fi
+    
+    while IFS= read -r bucket_json; do
+        [ -z "$bucket_json" ] && continue
+        
+        local bucket_name=$(echo "$bucket_json" | jq -r '.bucket_name')
+        
+        if [ "$bucket_name" = "$BUCKET_NAME" ]; then
+            log_warn "  Bucket '$BUCKET_NAME' already tracked in state file"
+            
+            local bucket_region=$(echo "$bucket_json" | jq -r '.region // "unknown"')
+            local created_at=$(echo "$bucket_json" | jq -r '.created_at // "unknown"')
+            
+            log_info "    Region: $bucket_region"
+            log_info "    Created: $(date -d @$created_at 2>/dev/null || echo $created_at)"
+            
+            BUCKET_ALREADY_IN_STATE=true
+            return 0
+        fi
+    done <<< "$buckets"
+    
+    log_info "  Bucket not found in state file"
+    BUCKET_ALREADY_IN_STATE=false
+    return 0  # Changed from return 1 to return 0
+}
+
+list_buckets_in_state() {
+    log_info "Buckets currently in state:"
+    
+    local buckets=$(get_s3_buckets)
+    
+    if [ -z "$buckets" ]; then
+        echo "  (none)"
+        return 0
+    fi
+    
+    local count=0
+    while IFS= read -r bucket_json; do
+        [ -z "$bucket_json" ] && continue
+        
+        local bucket_name=$(echo "$bucket_json" | jq -r '.bucket_name')
+        local bucket_region=$(echo "$bucket_json" | jq -r '.region')
+        
+        echo "  - $bucket_name ($bucket_region)"
+        ((count++))
+    done <<< "$buckets"
+    
+    echo "  Total: $count bucket(s)"
+}
 
 # ===========================
 # BUCKET OPERATIONS
 # ===========================
 
-bucket_exists() {
-    if dry_run_guard "Would check if bucket $BUCKET_NAME exists"; then
+bucket_exists_in_aws() {
+    if [ "${DRY_RUN:-false}" = "true" ]; then
+        log_info "[DRY-RUN] Would check if bucket $BUCKET_NAME exists in AWS" >&2
         return 1
     fi
     
@@ -41,9 +106,18 @@ bucket_exists() {
 create_bucket() {
     log_info "Creating S3 bucket: $BUCKET_NAME"
     
-    # Check if bucket already exists
-    if bucket_exists; then
-        log_warn "Bucket already exists: $BUCKET_NAME"
+    # Check if bucket already exists in AWS
+    if bucket_exists_in_aws; then
+        log_warn "Bucket already exists in AWS: $BUCKET_NAME"
+        
+        # If it exists in AWS but not in state, add it to state
+        if [ "$BUCKET_ALREADY_IN_STATE" = false ]; then
+            log_info "Adding existing bucket to state file"
+            if [ "${DRY_RUN:-false}" != "true" ]; then
+                add_s3_bucket "$BUCKET_NAME" "$REGION"
+            fi
+        fi
+        
         log_info "Will configure existing bucket"
         return 0
     fi
@@ -192,6 +266,10 @@ Security Features:
 - Encryption: ${ENABLE_ENCRYPTION}
 - Versioning: ${ENABLE_VERSIONING}
 - Public access: ${ENABLE_PUBLIC_READ}
+
+State Management:
+- Tracked in: s3://$STATE_BUCKET/$STATE_FILE
+- Already in state: $BUCKET_ALREADY_IN_STATE
 EOF
 
     log_success "Sample file created"
@@ -252,6 +330,7 @@ Versioning:         ${VERSIONING_STATUS}
 Encryption:         ${ENCRYPTION_STATUS}
 Public Access:      ${ENABLE_PUBLIC_READ}
 Bucket ARN:         arn:aws:s3:::${BUCKET_NAME}
+Already in State:   ${BUCKET_ALREADY_IN_STATE}
 ==========================================
 
 AWS CLI Commands:
@@ -259,16 +338,101 @@ AWS CLI Commands:
   Upload:   aws s3 cp file.txt s3://$BUCKET_NAME/ --region $REGION
   Download: aws s3 cp s3://$BUCKET_NAME/welcome.txt ./ --region $REGION
 
+State file: s3://$STATE_BUCKET/$STATE_FILE
 Log file: $LOG_FILE
 EOF
+}
+
+# ===========================
+# ARGUMENT PARSING
+# ===========================
+
+usage() {
+    cat <<EOF
+Usage: $SCRIPT_NAME [OPTIONS]
+
+Create an S3 bucket with automated configuration and state tracking.
+
+OPTIONS:
+  -d, --dry-run              Preview mode - no actual changes
+  -b, --bucket NAME          Bucket name (default: auto-generated)
+  -r, --region REGION        AWS region (default: eu-west-1)
+  --no-versioning            Disable bucket versioning
+  --no-encryption            Disable default encryption
+  --public                   Enable public read access (NOT recommended)
+  --no-upload                Skip sample file upload
+  -h, --help                 Show this help message
+
+ENVIRONMENT VARIABLES:
+  BUCKET_NAME                S3 bucket name
+  REGION                     AWS region
+  DRY_RUN                    Enable dry-run mode (true/false)
+  ENABLE_VERSIONING          Enable versioning (true/false)
+  ENABLE_ENCRYPTION          Enable encryption (true/false)
+  ENABLE_PUBLIC_READ         Enable public access (true/false)
+  UPLOAD_SAMPLE_FILE         Upload sample file (true/false)
+
+EXAMPLES:
+  $SCRIPT_NAME --dry-run
+  $SCRIPT_NAME --bucket my-unique-bucket-name
+  $SCRIPT_NAME --region us-east-1 --no-versioning
+  
+EOF
+    exit 0
+}
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dry-run|-d)
+                export DRY_RUN=true
+                shift
+                ;;
+            --bucket|-b)
+                export BUCKET_NAME="$2"
+                shift 2
+                ;;
+            --region|-r)
+                export REGION="$2"
+                shift 2
+                ;;
+            --no-versioning)
+                export ENABLE_VERSIONING=false
+                shift
+                ;;
+            --no-encryption)
+                export ENABLE_ENCRYPTION=false
+                shift
+                ;;
+            --public)
+                export ENABLE_PUBLIC_READ=true
+                shift
+                ;;
+            --no-upload)
+                export UPLOAD_SAMPLE_FILE=false
+                shift
+                ;;
+            --help|-h)
+                usage
+                ;;
+            *)
+                log_error "Unknown option: $1"
+                echo "Use --help for usage information"
+                exit 1
+                ;;
+        esac
+    done
 }
 
 # ===========================
 # MAIN EXECUTION
 # ===========================
 main() {
+    # Parse arguments
+    parse_args "$@"
+    
     # Initialize
-    print_header "S3 Bucket Creation Script"
+    print_header "S3 Bucket Creation Script (State-Based)"
     
     # Load existing state
     load_state
@@ -283,13 +447,33 @@ main() {
     # Verify credentials
     verify_aws_credentials "$REGION"
     
+    # Check if bucket already in state
+    echo ""
+    log_info "Checking state for existing bucket..."
+    check_bucket_in_state
+    
+    # Show existing buckets in state
+    echo ""
+    log_info "Listing buckets in state..."
+    list_buckets_in_state
+    
     # Display configuration
+    echo ""
+    log_info "Starting bucket creation process..."
     log_info "Configuration:"
     log_info "  Bucket: $BUCKET_NAME"
     log_info "  Region: $REGION"
     log_info "  Versioning: $ENABLE_VERSIONING"
     log_info "  Encryption: $ENABLE_ENCRYPTION"
+    log_info "  In State: $BUCKET_ALREADY_IN_STATE"
     echo ""
+    
+    # Warn if bucket already exists
+    if [ "$BUCKET_ALREADY_IN_STATE" = true ]; then
+        log_warn "Bucket is already tracked in state file!"
+        log_info "This script will update configuration but not create a new bucket"
+        echo ""
+    fi
     
     # Create and configure bucket
     log_info "[1/7] Creating sample file..."
@@ -314,6 +498,7 @@ main() {
     upload_file
     
     # Finalize
+    echo ""
     get_bucket_details
     display_summary
     
